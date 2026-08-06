@@ -1,13 +1,19 @@
 // 인쇄 에이전트 연동 클라이언트.
-// 계약(v1) 출처: SOO-992 계획 문서 §3 API 계약(요약: 이슈 SOO-993 본문).
+// 계약(v1) 출처: DropWordPrintAgent `docs/api-contract-v1.md`
+//   (SOO-994 에서 확정·머지, https://github.com/sookigom-co/DropWordPrintAgent/blob/main/docs/api-contract-v1.md).
 //   - Base URL: http://127.0.0.1:8737 (라즈베리파이 로컬 인쇄 에이전트)
 //   - GET  /v1/printer/status  : 프린터 사전 상태 확인
-//   - POST /v1/print           : PNG 전송(멀티파트 image 필드)
+//   - POST /v1/print           : JSON base64 전송
+//       요청  { "imagePngBase64": "<PNG base64>", "cut": true, "meta"?: { modifier, target, action } }
+//       성공  200 { "jobId": "...", "result": "printed" }
+//       실패  { "error": { "code": NO_PAPER|COVER_OPEN|PRINTER_OFFLINE|BAD_IMAGE|PAYLOAD_TOO_LARGE, "message"? } }
+//             (NO_PAPER/COVER_OPEN=409, PRINTER_OFFLINE=503, BAD_IMAGE=400, PAYLOAD_TOO_LARGE=413)
+// 실패 분기는 HTTP 상태가 아니라 error.code 를 1순위로 판정한다(계약 v1).
 // 실패 상태(NO_PAPER / COVER_OPEN / OFFLINE / 타임아웃) 는 절대 "완료"로 넘기지 않고
 // 스태프 호출 화면으로 분기시킨다.
 //
-// ⚠ 계약의 정확한 JSON 스키마는 BackendCoder 와 최종 확정 필요(README "인쇄 에이전트 계약" 참조).
-// 응답 파싱은 방어적으로 작성하여 다양한 필드명(status/state/code, ok/success 등)을 허용한다.
+// 응답 파싱은 방어적으로 작성하여 계약 v1 형태(result/error.code)를 1순위로 인식하되,
+// 구형 필드명(status/state/code, ok/success 등)도 하위 호환으로 허용한다.
 
 /** 정규화된 프린터 상태 */
 export type PrinterState =
@@ -32,10 +38,20 @@ export interface PrintResult {
   raw?: unknown;
 }
 
+/**
+ * 인쇄 감사/디버깅용 메타(계약 v1 `meta`, 선택 필드).
+ * 호출부가 단어 3개(수식어/대상/행동)를 갖고 있으면 그대로 전달한다.
+ */
+export interface PrintMeta {
+  modifier?: string;
+  target?: string;
+  action?: string;
+}
+
 export interface PrintClient {
   readonly mock: boolean;
   getStatus(): Promise<StatusResult>;
-  print(png: Blob): Promise<PrintResult>;
+  print(png: Blob, meta?: PrintMeta): Promise<PrintResult>;
 }
 
 const DEFAULT_BASE = 'http://127.0.0.1:8737';
@@ -83,11 +99,104 @@ function normalizeState(payload: unknown): PrinterState {
     case 'DOOR_OPEN':
       return 'COVER_OPEN';
     case 'OFFLINE':
+    case 'PRINTER_OFFLINE':
     case 'DISCONNECTED':
       return 'OFFLINE';
     default:
       return 'ERROR';
   }
+}
+
+/** 계약 v1 `error.code` → 내부 PrinterState 매핑 */
+export function mapErrorCode(code: string): PrinterState {
+  switch (code.toUpperCase()) {
+    case 'NO_PAPER':
+      return 'NO_PAPER';
+    case 'COVER_OPEN':
+      return 'COVER_OPEN';
+    case 'PRINTER_OFFLINE':
+      return 'OFFLINE';
+    case 'BAD_IMAGE':
+    case 'PAYLOAD_TOO_LARGE':
+    default:
+      return 'ERROR';
+  }
+}
+
+/** 바이트 배열 → 순수 base64(btoa 기반, 외부 의존 없음) */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000; // call stack 보호를 위해 청크 단위로 변환
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+/**
+ * PNG Blob → 순수 base64 문자열(data URL 접두 없음).
+ * 브라우저 표준 `Blob.arrayBuffer()` 를 우선 사용하고, 없는 환경(일부 테스트 런타임)에서는
+ * `FileReader` 로 폴백한다. 외부 네트워크/CDN 의존 없음(오프라인 요건 유지).
+ */
+export function blobToBase64(blob: Blob): Promise<string> {
+  if (typeof blob.arrayBuffer === 'function') {
+    return blob.arrayBuffer().then((buf) => bytesToBase64(new Uint8Array(buf)));
+  }
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(stripDataUrlPrefix(String(reader.result)));
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader 실패'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** `data:image/png;base64,` 등 data URL 접두가 있으면 순수 base64 부분만 추출 */
+export function stripDataUrlPrefix(value: string): string {
+  const comma = value.indexOf(',');
+  return value.startsWith('data:') && comma >= 0 ? value.slice(comma + 1) : value;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * `POST /v1/print` 응답을 계약 v1 기준으로 해석한다.
+ *   - 성공: `result === "printed"`(+ jobId)  → ok
+ *   - 실패: `error.code` 우선 판정(HTTP 상태 무관)
+ *   - 하위 호환: ok/success 필드, status/state 정규화도 허용
+ */
+export function interpretPrintResponse(
+  httpOk: boolean,
+  httpStatus: number,
+  raw: unknown,
+): PrintResult {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+
+  // 계약 v1 성공 형태 우선
+  if (String(r.result ?? '').toLowerCase() === 'printed') {
+    return { ok: true, state: 'READY', jobId: asString(r.jobId), raw };
+  }
+
+  // 계약 v1 실패 형태: error.code 기준 분기
+  const errObj =
+    r.error && typeof r.error === 'object' ? (r.error as Record<string, unknown>) : undefined;
+  const code = errObj ? String(errObj.code ?? '').toUpperCase() : '';
+  if (code) {
+    const state = mapErrorCode(code);
+    return {
+      ok: false,
+      state,
+      message: asString(errObj?.message) ?? failureMessage(state),
+      raw,
+    };
+  }
+
+  // 하위 호환(구형 필드명)
+  if (httpOk && (r.ok === true || r.success === true)) {
+    return { ok: true, state: 'READY', jobId: asString(r.jobId), raw };
+  }
+  return { ok: false, state: normalizeState(raw), message: `HTTP ${httpStatus}`, raw };
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
@@ -120,24 +229,29 @@ class HttpPrintClient implements PrintClient {
     }
   }
 
-  async print(png: Blob): Promise<PrintResult> {
+  async print(png: Blob, meta?: PrintMeta): Promise<PrintResult> {
     try {
-      const form = new FormData();
-      form.append('image', png, 'treaty.png');
+      const imagePngBase64 = await blobToBase64(png);
+      const body: {
+        imagePngBase64: string;
+        cut: boolean;
+        meta?: PrintMeta;
+      } = { imagePngBase64, cut: true };
+      if (meta) body.meta = meta;
+
       const res = await fetchWithTimeout(
         `${this.base}/v1/print`,
-        { method: 'POST', body: form },
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+        },
         PRINT_TIMEOUT_MS,
       );
       const raw = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        return { ok: false, state: normalizeState(raw), message: `HTTP ${res.status}`, raw };
-      }
-      const r = raw as Record<string, unknown>;
-      const ok = r.ok === true || r.success === true || normalizeState(raw) === 'READY';
-      const state = ok ? 'READY' : normalizeState(raw);
-      return { ok, state, jobId: r.jobId as string | undefined, raw };
+      return interpretPrintResponse(res.ok, res.status, raw);
     } catch {
+      // 네트워크 오류/타임아웃 → 에이전트 미기동으로 간주(OFFLINE)
       return { ok: false, state: 'OFFLINE', message: '인쇄 요청 시간 초과 또는 연결 실패' };
     }
   }
@@ -153,7 +267,7 @@ class MockPrintClient implements PrintClient {
     return { state: this.forced ?? 'READY', message: 'mock' };
   }
 
-  async print(_png: Blob): Promise<PrintResult> {
+  async print(_png: Blob, _meta?: PrintMeta): Promise<PrintResult> {
     await delay(1500);
     const state = this.forced ?? 'READY';
     if (state !== 'READY' && state !== 'BUSY') {
