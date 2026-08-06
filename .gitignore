@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+coverage
+*.local
+.DS_Store
+.vite
+npm-debug.log*
+yarn-error.log*
+
+# 폰트 원본(대용량) — 커밋하지 않음. 서브셋 woff2 만 커밋. (scripts/subset_font.py)
+scripts/GowunDodum-source.ttf
+
+# TS incremental build info
+*.tsbuildinfo

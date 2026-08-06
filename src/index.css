@@ -1,0 +1,30 @@
+:root {
+  font-family: system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  color: #1c1a17;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #faf6ef;
+}
+
+.scaffold {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 24px;
+}
