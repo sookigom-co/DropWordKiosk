@@ -1,13 +1,151 @@
-/**
- * DropWordKiosk — 초기 스캐폴드.
- * 실제 체험 SPA(17화면 상태 머신, 애니메이션 3종, 인쇄 연동)는
- * feature 브랜치(soo-993)에서 구현한다. ([SOO-993](/SOO/issues/SOO-993))
- */
+import { useCallback, useMemo, useState } from 'react';
+import { useKiosk } from './state/useKiosk';
+import { useIdleTimeout } from './lib/useIdleTimeout';
+import { IDLE_TIMEOUT_MS } from './state/config';
+import { createPrintClient, type PrinterState } from './lib/printClient';
+import { Logo } from './components/Logo';
+import { StartScreen } from './screens/StartScreen';
+import { IntroScreen } from './screens/IntroScreen';
+import { TreatyScreen } from './screens/TreatyScreen';
+import { StepIntroScreen } from './screens/StepIntroScreen';
+import { Step1Bubbles } from './screens/Step1Bubbles';
+import { Step2Falling } from './screens/Step2Falling';
+import { Step3Sorted } from './screens/Step3Sorted';
+import { GeneratingScreen } from './screens/GeneratingScreen';
+import { ResultScreen } from './screens/ResultScreen';
+import { PrintingScreen } from './screens/PrintingScreen';
+import { DoneScreen } from './screens/DoneScreen';
+import { PrintErrorScreen } from './screens/PrintErrorScreen';
+
+/** 무입력 타임아웃을 감시할 대화형 화면들(자동 진행 화면은 제외) */
+const IDLE_WATCHED = new Set([
+  'intro',
+  'treaty',
+  'step1Intro',
+  'step1',
+  'step2Intro',
+  'step2',
+  'step3Intro',
+  'step3',
+  'error',
+]);
+
 export default function App() {
-  return (
-    <main className="scaffold">
-      <h1>평화 협정문 완성하기</h1>
-      <p>철원 국가유산 야행 · 키오스크 체험 SPA (초기 스캐폴드)</p>
-    </main>
+  const kiosk = useKiosk();
+  const client = useMemo(() => createPrintClient(), []);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<PrinterState>('ERROR');
+
+  const resetAll = useCallback(() => {
+    setPreviewUrl(null);
+    setErrorState('ERROR');
+    kiosk.reset();
+  }, [kiosk]);
+
+  useIdleTimeout(resetAll, IDLE_TIMEOUT_MS, IDLE_WATCHED.has(kiosk.step));
+
+  const handleSuccess = useCallback(
+    (url: string) => {
+      setPreviewUrl(url);
+      kiosk.go('done');
+    },
+    [kiosk],
   );
+
+  const handleError = useCallback(
+    (state: PrinterState, url: string | null) => {
+      setErrorState(state);
+      setPreviewUrl(url);
+      kiosk.go('error');
+    },
+    [kiosk],
+  );
+
+  return (
+    <div className="app-root">
+      {client.mock && <div className="mock-badge">MOCK</div>}
+      <Logo />
+      {renderStep()}
+    </div>
+  );
+
+  function renderStep() {
+    switch (kiosk.step) {
+      case 'start':
+        return <StartScreen onStart={kiosk.next} />;
+      case 'intro':
+        return <IntroScreen onNext={kiosk.next} />;
+      case 'treaty':
+        return <TreatyScreen onNext={kiosk.next} />;
+      case 'step1Intro':
+        return (
+          <StepIntroScreen
+            step="STEP 1."
+            subtitle={'평화 협정문에 담을 대상을\n선택하세요.'}
+            onNext={kiosk.next}
+          />
+        );
+      case 'step1':
+        return (
+          <Step1Bubbles selectedId={kiosk.nounId} onSelect={kiosk.selectNoun} onNext={kiosk.next} />
+        );
+      case 'step2Intro':
+        return (
+          <StepIntroScreen
+            step="STEP 2."
+            subtitle={'선택한 대상을 표현할 말을\n선택하세요.'}
+            onNext={kiosk.next}
+          />
+        );
+      case 'step2':
+        return (
+          <Step2Falling
+            selectedId={kiosk.adjectiveId}
+            onSelect={kiosk.selectAdjective}
+            onNext={kiosk.next}
+          />
+        );
+      case 'step3Intro':
+        return (
+          <StepIntroScreen
+            step="STEP 3."
+            subtitle={'마지막으로\n약속을 완성할\n행동을 선택하세요.'}
+            onNext={kiosk.next}
+          />
+        );
+      case 'step3':
+        return (
+          <Step3Sorted selectedId={kiosk.verbId} onSelect={kiosk.selectVerb} onNext={kiosk.next} />
+        );
+      case 'generating':
+        return <GeneratingScreen onDone={() => kiosk.go('result')} />;
+      case 'result':
+        return (
+          <ResultScreen sentence={kiosk.sentence ?? ''} onDone={() => kiosk.go('printing')} />
+        );
+      case 'printing':
+        return (
+          <PrintingScreen
+            client={client}
+            sentence={kiosk.sentence ?? ''}
+            onSuccess={handleSuccess}
+            onError={handleError}
+          />
+        );
+      case 'done':
+        return <DoneScreen onReset={resetAll} previewUrl={previewUrl} mock={client.mock} />;
+      case 'error':
+        return (
+          <PrintErrorScreen
+            state={errorState}
+            onRetry={() => kiosk.go('printing')}
+            onReset={resetAll}
+            previewUrl={previewUrl}
+            mock={client.mock}
+          />
+        );
+      default:
+        return <StartScreen onStart={kiosk.next} />;
+    }
+  }
 }
