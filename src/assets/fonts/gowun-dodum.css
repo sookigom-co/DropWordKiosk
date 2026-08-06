@@ -1,0 +1,10 @@
+/* Gowun Dodum (고운돋움) — 오프라인 번들 서브셋.
+   원본: Google Fonts, SIL Open Font License 1.1.
+   서브셋 생성: `npm run subset-font` (scripts/subset_font.py). */
+@font-face {
+  font-family: 'Gowun Dodum';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./GowunDodum-subset.woff2') format('woff2');
+}
