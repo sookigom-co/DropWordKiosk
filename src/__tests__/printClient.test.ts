@@ -4,8 +4,11 @@ import {
   createPrintClient,
   interpretPrintResponse,
   mapErrorCode,
+  resolveAgentBase,
   stripDataUrlPrefix,
 } from '../lib/printClient';
+
+const DEFAULT_BASE = 'http://127.0.0.1:8737';
 
 // 최소 PNG 시그니처 바이트로 만든 Blob(실제 인쇄 대상 대용).
 function pngBlob(): Blob {
@@ -146,6 +149,83 @@ describe('HttpPrintClient.print (계약 v1 JSON base64)', () => {
     const result = await client.print(pngBlob());
     expect(result.ok).toBe(false);
     expect(result.state).toBe('OFFLINE');
+  });
+});
+
+describe('resolveAgentBase (?agent= 런타임 재정의)', () => {
+  it('파라미터가 없으면 기본값을 그대로 사용한다(운영 동작 불변)', () => {
+    expect(resolveAgentBase('')).toBe(DEFAULT_BASE);
+    expect(resolveAgentBase('?mock=1')).toBe(DEFAULT_BASE);
+    // 빈 값(agent=) 도 폴백
+    expect(resolveAgentBase('?agent=')).toBe(DEFAULT_BASE);
+  });
+
+  it('유효한 http/https origin 이면 그 값으로 재정의한다', () => {
+    expect(resolveAgentBase('?agent=http://192.168.0.50:8737')).toBe('http://192.168.0.50:8737');
+    expect(resolveAgentBase('?agent=https://192.168.0.50:8737')).toBe('https://192.168.0.50:8737');
+    // 후행 슬래시(순수 origin)는 정규화하여 제거
+    expect(resolveAgentBase('?agent=http://192.168.0.50:8737/')).toBe('http://192.168.0.50:8737');
+  });
+
+  it('URL 인코딩된 값도 해석한다', () => {
+    expect(resolveAgentBase('?agent=' + encodeURIComponent('http://192.168.0.50:8737'))).toBe(
+      'http://192.168.0.50:8737',
+    );
+  });
+
+  it('무효값은 무시하고 기본값으로 폴백한다', () => {
+    // 비 http 스킴
+    expect(resolveAgentBase('?agent=ftp://192.168.0.50:8737')).toBe(DEFAULT_BASE);
+    expect(resolveAgentBase('?agent=' + encodeURIComponent('file:///etc/passwd'))).toBe(DEFAULT_BASE);
+    // 파싱 실패(스킴 없음)
+    expect(resolveAgentBase('?agent=192.168.0.50:8737')).toBe(DEFAULT_BASE);
+    expect(resolveAgentBase('?agent=not-a-url')).toBe(DEFAULT_BASE);
+    // 경로·쿼리·해시가 붙은 값 거부
+    expect(resolveAgentBase('?agent=' + encodeURIComponent('http://192.168.0.50:8737/v1/print'))).toBe(
+      DEFAULT_BASE,
+    );
+    expect(resolveAgentBase('?agent=' + encodeURIComponent('http://192.168.0.50:8737/?x=1'))).toBe(
+      DEFAULT_BASE,
+    );
+    expect(resolveAgentBase('?agent=' + encodeURIComponent('http://192.168.0.50:8737#frag'))).toBe(
+      DEFAULT_BASE,
+    );
+    // 자격증명 포함 거부
+    expect(resolveAgentBase('?agent=' + encodeURIComponent('http://user:pw@192.168.0.50:8737'))).toBe(
+      DEFAULT_BASE,
+    );
+  });
+
+  it('명시된 fallback 인자를 존중한다(빌드 시 VITE_PRINTER_BASE 등)', () => {
+    expect(resolveAgentBase('', 'http://10.0.0.9:8737')).toBe('http://10.0.0.9:8737');
+    // ?agent= 유효값은 fallback 보다 우선
+    expect(resolveAgentBase('?agent=http://192.168.0.50:8737', 'http://10.0.0.9:8737')).toBe(
+      'http://192.168.0.50:8737',
+    );
+  });
+});
+
+describe('createPrintClient (?agent= 배선)', () => {
+  it('?agent= 유효값이면 해당 origin 으로 요청한다', async () => {
+    const original = window.location.search;
+    Object.defineProperty(window, 'location', {
+      value: { search: '?agent=http://192.168.0.50:8737' },
+      writable: true,
+      configurable: true,
+    });
+    try {
+      const fn = mockFetch({ ok: true, status: 200, json: { jobId: 'j', result: 'printed' } });
+      const client = createPrintClient();
+      await client.print(pngBlob());
+      const [url] = fn.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe('http://192.168.0.50:8737/v1/print');
+    } finally {
+      Object.defineProperty(window, 'location', {
+        value: { search: original },
+        writable: true,
+        configurable: true,
+      });
+    }
   });
 });
 
