@@ -291,24 +291,31 @@ button {
 
 /* ── 협정문 ──────────────────────────────────────────────────── */
 .treaty {
-  width: min(560px, 92vw);
+  /* 폰트 1.7배 확대(SOO-1043)로 조문이 한 줄에 담기도록 카드 폭을 넓힌다. */
+  width: min(680px, 94vw);
   background: #fbfaf6;
   border: 1px solid var(--line);
   border-radius: 4px;
-  padding: 28px 30px;
+  padding: 24px 30px;
   text-align: left;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
 }
 .treaty__title {
   text-align: center;
-  font-size: 24px;
+  /* 24px → 40px (≈1.7배) */
+  font-size: 40px;
   font-weight: 700;
-  margin: 0 0 20px;
+  margin: 0 0 16px;
 }
 .treaty__article {
-  font-size: clamp(13px, 2vw, 16px);
-  line-height: 1.9;
+  /* clamp(13,2vw,16) → clamp(22,3.2vw,27) (≈1.7배). 확대에 맞춰 줄간격을 1.9→1.6 으로 낮춰 overflow 방지. */
+  font-size: clamp(22px, 3.2vw, 27px);
+  line-height: 1.6;
   margin: 0;
+}
+/* 제10조 자리 사전 확보 — 감춰도 높이는 유지(레이아웃 시프트 0). */
+.treaty__article--reserved {
+  visibility: hidden;
 }
 .treaty__article--blank {
   margin-top: 6px;
@@ -316,7 +323,8 @@ button {
 }
 .treaty__blank-line {
   display: inline-block;
-  min-width: 180px;
+  /* 확대 폰트에 맞춰 넓히되, 좁은 뷰포트에서 카드 밖으로 넘치지 않도록 clamp 상한을 둔다. */
+  min-width: clamp(160px, 30vw, 260px);
   border-bottom: 1.5px solid var(--ink);
 }
 /* 제10조 빈칸 깜박임(blink) — 자모 출력 완료 후 강조 */
@@ -354,8 +362,9 @@ button {
 }
 .treaty__footer {
   text-align: center;
-  margin-top: 22px;
-  font-size: 13px;
+  margin-top: 18px;
+  /* 13px → 22px (≈1.7배) */
+  font-size: 22px;
   color: var(--ink-soft);
   line-height: 1.6;
 }
