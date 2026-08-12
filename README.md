@@ -82,10 +82,9 @@ STEP2 형용사 선택(물리 낙하) → STEP3 동사 선택(정렬 낙하) →
 `?agent=` > `VITE_PRINTER_BASE` > same-origin 기본값.
 
 - `GET  /v1/printer/status` — 인쇄 전 상태 확인. 상태 코드(READY/NO_PAPER/COVER_OPEN/OFFLINE 등)를 반환.
-- `POST /v1/print` — `multipart/form-data`, 필드 `image` 에 협정문 PNG(640px 흑백) 전송.
+- `POST /v1/print` — `application/json`, 본문 `{ "imagePngBase64": "<PNG base64>", "cut": true, "meta"?: { modifier, target, action } }`. 협정문 PNG(640px 흑백)를 순수 base64 로 전송한다(계약 v1, SOO-997).
 
-응답 파싱은 방어적으로 작성(다양한 필드명 status/state/code, ok/success 허용)했다.
-**정확한 JSON 스키마는 BackendCoder 와 최종 확정 필요** — 구현: `src/lib/printClient.ts`.
+응답 파싱은 방어적으로 작성(다양한 필드명 status/state/code, ok/success 허용)했다 — 구현: `src/lib/printClient.ts`.
 
 ### mock 모드 (에이전트 없이 테스트)
 
