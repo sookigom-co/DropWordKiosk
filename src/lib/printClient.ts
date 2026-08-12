@@ -289,15 +289,48 @@ function parseForcedState(value: string | null): PrinterState | undefined {
 }
 
 /**
+ * 인쇄 에이전트 Base URL 을 결정한다(우선순위: `?agent=` 쿼리 → fallback).
+ *
+ * LAN 상의 외부 PC 브라우저로 키오스크를 시험할 때, 하드코딩된
+ * `http://127.0.0.1:8737` 는 테스터 자신의 PC 로 향해 키오스크 에이전트에
+ * 도달하지 못한다. `?agent=http://<kiosk-ip>:8737` 로 런타임 재정의를 허용한다.
+ *
+ * 안전 장치:
+ *   - `http:`/`https:` 스킴의 **순수 origin**(경로·쿼리·해시·자격증명 없음)만 허용.
+ *   - 파싱 실패·형식 위반 값은 무시하고 `fallback`(기본 `http://127.0.0.1:8737`)으로 폴백.
+ *   - localStorage 등 영속화는 하지 않는다 — 운영 배포에 재정의가 잔류하는 사고 방지.
+ *   - 파라미터가 없으면 `fallback` 그대로 → 운영 키오스크 동작 불변.
+ */
+export function resolveAgentBase(search: string, fallback: string = DEFAULT_BASE): string {
+  const override = new URLSearchParams(search).get('agent');
+  if (!override) return fallback;
+
+  let url: URL;
+  try {
+    url = new URL(override);
+  } catch {
+    return fallback; // 파싱 불가 → 기본값 폴백
+  }
+
+  // http/https 스킴만 허용
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return fallback;
+  // 경로·쿼리·해시·자격증명이 붙은 값은 거부(순수 origin 만 허용)
+  if ((url.pathname && url.pathname !== '/') || url.search || url.hash) return fallback;
+  if (url.username || url.password) return fallback;
+
+  return url.origin; // 정규화된 origin(후행 슬래시 제거)
+}
+
+/**
  * 환경/쿼리 플래그로 클라이언트를 생성한다.
  *   - VITE_PRINT_MOCK=1  또는  ?mock=1     → mock 모드
  *   - ?printer=no_paper 등                 → mock 강제 상태(실패 분기 테스트)
- *   - VITE_PRINTER_BASE                    → 에이전트 Base URL 재정의
+ *   - VITE_PRINTER_BASE                    → 빌드 시 에이전트 Base URL 재정의
+ *   - ?agent=http://<ip>:8737              → 런타임 에이전트 Base URL 재정의(외부 PC 시험용)
  */
 export function createPrintClient(): PrintClient {
-  const params = new URLSearchParams(
-    typeof window !== 'undefined' ? window.location.search : '',
-  );
+  const search = typeof window !== 'undefined' ? window.location.search : '';
+  const params = new URLSearchParams(search);
   const forced = parseForcedState(params.get('printer'));
   const mockByEnv = import.meta.env.VITE_PRINT_MOCK === '1';
   const mockByQuery = params.get('mock') === '1' || forced !== undefined;
@@ -305,6 +338,7 @@ export function createPrintClient(): PrintClient {
   if (mockByEnv || mockByQuery) {
     return new MockPrintClient(forced);
   }
-  const base = (import.meta.env.VITE_PRINTER_BASE as string | undefined) ?? DEFAULT_BASE;
+  const envBase = (import.meta.env.VITE_PRINTER_BASE as string | undefined) ?? DEFAULT_BASE;
+  const base = resolveAgentBase(search, envBase);
   return new HttpPrintClient(base);
 }
