@@ -18,6 +18,7 @@
 
   --touch-min: 44px; /* 최소 터치 타깃 */
   --logo-h: 84px;
+  --next-h: 96px; /* 하단 고정 NEXT 바 높이(로고 상단 바와 대칭) */
 
   font-family: 'Gowun Dodum', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
   color: var(--ink);
@@ -84,7 +85,8 @@ button {
   align-items: center;
   justify-content: center;
   gap: 28px;
-  padding: 24px clamp(16px, 4vw, 48px) 40px;
+  /* 하단 고정 NEXT 바(--next-h)와 겹치지 않도록 하단 여백을 확보한다. */
+  padding: 24px clamp(16px, 4vw, 48px) calc(var(--next-h) + 8px);
   text-align: center;
   position: relative;
 }
@@ -120,6 +122,21 @@ button {
 }
 
 /* ── 버튼 ─────────────────────────────────────────────────────── */
+/* 하단 고정 NEXT 바 — 로고 상단 헤더(.kiosk-logo)와 대칭 레이아웃. */
+.next-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  height: var(--next-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
 .btn-next {
   min-height: var(--touch-min);
   min-width: 160px;

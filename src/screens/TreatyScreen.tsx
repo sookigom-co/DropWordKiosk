@@ -136,8 +136,10 @@ export function TreatyScreen({ onNext }: Props) {
         >
           <BlankArticle zoom />
           <p className="screen__lead">{LEAD_TEXT}</p>
-          <NextButton onClick={onNext} />
         </motion.div>
+        {/* NEXT 는 하단 고정 바(.next-bar, position:fixed)로 렌더되므로,
+            transform 이 걸리는 motion.div 밖에 두어 뷰포트 기준 고정을 보장한다(SOO-1039). */}
+        <NextButton onClick={onNext} />
       </ScreenFrame>
     );
   }
