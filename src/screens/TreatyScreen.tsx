@@ -6,8 +6,8 @@ import { typingFrames } from '../lib/jamo';
 import {
   TREATY_TITLE,
   TREATY_ARTICLES,
-  TREATY_FOOTER_DATE,
   TREATY_FOOTER_PLACE,
+  formatTreatyFooterDate,
 } from '../data/treaty';
 
 interface Props {
@@ -107,6 +107,8 @@ function BlankArticle({ zoom }: { zoom?: boolean }) {
  */
 export function TreatyScreen({ onNext }: Props) {
   const reduced = !!useReducedMotion();
+  // 작성일자는 렌더 시점(마운트 1회)의 기기 로컬 시간 기준으로 동적 생성한다.
+  const footerDate = useMemo(() => formatTreatyFooterDate(new Date()), []);
   const [phase, setPhase] = useState<'writing' | 'guide'>('writing');
   // 완성(타이핑 종료)된 조문 개수. 모션 최소화 선호 시 즉시 전체 표시.
   const [typedCount, setTypedCount] = useState(reduced ? TREATY_ARTICLES.length : 0);
@@ -166,7 +168,7 @@ export function TreatyScreen({ onNext }: Props) {
         ))}
         {allTyped && <BlankArticle />}
         <p className="treaty__footer">
-          {TREATY_FOOTER_DATE}
+          {footerDate}
           <br />
           {TREATY_FOOTER_PLACE}
         </p>

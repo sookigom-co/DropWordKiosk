@@ -5,9 +5,9 @@
 import {
   TREATY_TITLE,
   TREATY_ARTICLES,
-  TREATY_FOOTER_DATE,
   TREATY_FOOTER_PLACE,
   LOGO_TEXT,
+  formatTreatyFooterDate,
 } from '../data/treaty';
 
 export const PRINT_WIDTH = 640;
@@ -104,8 +104,9 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
     });
   });
 
-  // 서명부
-  lines.push({ text: TREATY_FOOTER_DATE, font: footerFont, lineHeight: 28, align: 'center', gapAfter: 4 });
+  // 서명부 — 작성일자는 인쇄 시점의 기기 로컬 시간 기준으로 동적 생성(화면과 동일 포맷).
+  const footerDate = formatTreatyFooterDate(new Date());
+  lines.push({ text: footerDate, font: footerFont, lineHeight: 28, align: 'center', gapAfter: 4 });
   lines.push({ text: TREATY_FOOTER_PLACE, font: footerFont, lineHeight: 28, align: 'center', gapAfter: 0 });
 
   // 전체 높이 계산
