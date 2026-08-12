@@ -8,7 +8,9 @@ import {
   stripDataUrlPrefix,
 } from '../lib/printClient';
 
-const DEFAULT_BASE = 'http://127.0.0.1:8737';
+// SOO-1029: 통합 배포에서 인쇄 호출은 same-origin 상대 경로('')로 나간다.
+// 기본 base 는 빈 문자열이고, fetch(`${base}/v1/print`) → `/v1/print`(현재 origin) 가 된다.
+const DEFAULT_BASE = '';
 
 // 최소 PNG 시그니처 바이트로 만든 Blob(실제 인쇄 대상 대용).
 function pngBlob(): Blob {
@@ -99,7 +101,8 @@ describe('HttpPrintClient.print (계약 v1 JSON base64)', () => {
       string,
       RequestInit & { headers: Record<string, string> },
     ];
-    expect(url).toBe('http://127.0.0.1:8737/v1/print');
+    // 기본값(same-origin): 재정의가 없으면 상대 경로로 나간다.
+    expect(url).toBe('/v1/print');
     expect(init.method).toBe('POST');
     expect(init.headers['Content-Type']).toBe('application/json');
 
@@ -202,6 +205,30 @@ describe('resolveAgentBase (?agent= 런타임 재정의)', () => {
     expect(resolveAgentBase('?agent=http://192.168.0.50:8737', 'http://10.0.0.9:8737')).toBe(
       'http://192.168.0.50:8737',
     );
+  });
+});
+
+// SOO-1029 인수 조건: 기본값(same-origin)·env 재정의·?agent= 재정의 3케이스와
+// 우선순위(?agent= > VITE_PRINTER_BASE > same-origin)를 명시적으로 고정한다.
+describe('Base URL 결정 규칙 (SOO-1029)', () => {
+  it('기본값: 재정의가 없으면 same-origin 상대 경로("")', () => {
+    // envBase 미설정(= DEFAULT_BASE = "") + ?agent= 없음 → same-origin
+    expect(resolveAgentBase('')).toBe('');
+    expect(DEFAULT_BASE).toBe('');
+  });
+
+  it('env 재정의: VITE_PRINTER_BASE(=fallback 인자)를 base 로 사용한다', () => {
+    // createPrintClient 는 envBase = VITE_PRINTER_BASE ?? "" 를 fallback 으로 넘긴다.
+    expect(resolveAgentBase('', 'http://127.0.0.1:8737')).toBe('http://127.0.0.1:8737');
+  });
+
+  it('?agent= 재정의가 env/기본값보다 우선한다', () => {
+    // ?agent= > VITE_PRINTER_BASE
+    expect(resolveAgentBase('?agent=http://192.168.0.50:8737', 'http://127.0.0.1:8737')).toBe(
+      'http://192.168.0.50:8737',
+    );
+    // ?agent= > same-origin 기본값
+    expect(resolveAgentBase('?agent=http://192.168.0.50:8737', '')).toBe('http://192.168.0.50:8737');
   });
 });
 
