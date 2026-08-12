@@ -14,9 +14,10 @@ interface Props {
   onNext: () => void;
 }
 
-// 타이밍 상수(조정 가능). 1~9조 전체 타이핑 목표 ~15~25초 내.
+// 타이밍 상수(조정 가능).
+// 제1~9조는 동시에 타이핑을 시작한다(보더 요청: 각 라인 동시 출력).
+// 전체 소요 시간 = 가장 긴 조문 1개의 타이핑 시간(~수 초).
 const TYPING_INTERVAL_MS = 30; // 자모 프레임 1개당 진행 간격
-const ARTICLE_GAP_MS = 220; // 조문 사이 짧은 정지
 const NEXT_REVEAL_DELAY_MS = 500; // 10조 빈칸 깜박임 표출 후 Next 노출 지연
 
 const LEAD_TEXT =
@@ -101,7 +102,7 @@ function BlankArticle({ zoom }: { zoom?: boolean }) {
 
 /**
  * 화면3 — 협정문.
- * 1단계: 제1~9조 자모 분리 타이핑 순차 출력 → 제10조 빈칸 깜박임 → Next 노출.
+ * 1단계: 제1~9조 자모 분리 타이핑 "동시" 출력 → 제10조 빈칸 깜박임 → Next 노출.
  * 2단계: Next 클릭 시 제10조 빈칸 확대 + 안내문구 + Next(다음 단계 진행).
  */
 export function TreatyScreen({ onNext }: Props) {
@@ -110,22 +111,12 @@ export function TreatyScreen({ onNext }: Props) {
   // 완성(타이핑 종료)된 조문 개수. 모션 최소화 선호 시 즉시 전체 표시.
   const [typedCount, setTypedCount] = useState(reduced ? TREATY_ARTICLES.length : 0);
   const [showNext, setShowNext] = useState(reduced);
-  // 현재 타이핑 중인 조문 인덱스(조문 사이 정지 후 다음으로 이동).
-  const [activeIndex, setActiveIndex] = useState(reduced ? -1 : 0);
 
   const allTyped = typedCount >= TREATY_ARTICLES.length;
 
   const handleArticleDone = useCallback(() => {
     setTypedCount((c) => c + 1);
   }, []);
-
-  // 조문 하나가 끝나면 짧은 정지 후 다음 조문 타이핑 시작(리듬).
-  useEffect(() => {
-    if (reduced || allTyped) return;
-    if (activeIndex === typedCount) return;
-    const t = setTimeout(() => setActiveIndex(typedCount), ARTICLE_GAP_MS);
-    return () => clearTimeout(t);
-  }, [typedCount, activeIndex, allTyped, reduced]);
 
   // 전체 타이핑 완료 → 빈칸 깜박임 노출 후 Next 표출.
   useEffect(() => {
@@ -165,8 +156,9 @@ export function TreatyScreen({ onNext }: Props) {
             key={idx}
             index={idx}
             text={article}
-            active={!reduced && idx === activeIndex && idx === typedCount}
-            done={reduced || idx < typedCount}
+            // 모든 조문이 동시에 타이핑을 시작한다(순차 X).
+            active={!reduced}
+            done={reduced}
             onDone={handleArticleDone}
           />
         ))}
