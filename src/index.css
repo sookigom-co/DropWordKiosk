@@ -416,8 +416,8 @@ button {
   margin: 0 0 16px;
 }
 .treaty__article {
-  /* clamp(13,2vw,16) → clamp(22,3.2vw,27) (≈1.7배). 확대에 맞춰 줄간격을 1.9→1.6 으로 낮춰 overflow 방지. */
-  font-size: clamp(22px, 3.2vw, 27px);
+  /* 보더 검토 후 본문(조문) 폰트를 20px 고정으로 조정(SOO-1046). 축소로 overflow 여유가 커져 줄간격 1.6 유지. */
+  font-size: 20px;
   line-height: 1.6;
   margin: 0;
 }
