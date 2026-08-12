@@ -84,10 +84,18 @@ function ArticleLine({ index, text, active, done, onDone }: ArticleLineProps) {
   );
 }
 
-/** 제10조 빈칸 마크업(1단계: 문서 내 인라인 / 2단계: 확대). */
-function BlankArticle({ zoom }: { zoom?: boolean }) {
+/**
+ * 제10조 빈칸 마크업(1단계: 문서 내 인라인 / 2단계: 확대).
+ * reserved=true 면 자리(높이)는 그대로 차지하되 `visibility: hidden` 으로 감춘다.
+ * → 제1~9조 타이핑 중에도 제10조 자리가 사전 확보되어, 실제 표출 시 레이아웃 시프트가 0 이다.
+ * visibility:hidden 은 접근성 트리에서도 제외되므로, 감춰진 동안 스크린리더가 "(빈칸)"을 먼저 읽지 않는다.
+ */
+function BlankArticle({ zoom, reserved }: { zoom?: boolean; reserved?: boolean }) {
+  const className = zoom
+    ? 'treaty-zoom__article'
+    : `treaty__article treaty__article--blank${reserved ? ' treaty__article--reserved' : ''}`;
   return (
-    <p className={zoom ? 'treaty-zoom__article' : 'treaty__article treaty__article--blank'}>
+    <p className={className}>
       제 10조 우리는{' '}
       <span
         className={`treaty__blank-line treaty__blank-line--blink${
@@ -166,7 +174,9 @@ export function TreatyScreen({ onNext }: Props) {
             onDone={handleArticleDone}
           />
         ))}
-        {allTyped && <BlankArticle />}
+        {/* 제10조는 처음부터 렌더하여 자리를 사전 확보한다. 타이핑 완료(allTyped) 전에는
+            reserved 로 감춰 두고, 완료 시점에 노출한다 → 등장 순간 다른 조항이 1px 도 밀리지 않는다. */}
+        <BlankArticle reserved={!allTyped} />
         <p className="treaty__footer">
           {footerDate}
           <br />
