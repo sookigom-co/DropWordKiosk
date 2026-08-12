@@ -68,13 +68,13 @@ button {
   border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
-.kiosk-logo__box {
-  border: 1.5px solid #9db0d6;
-  border-radius: 8px;
-  padding: 10px 22px;
-  font-size: 20px;
-  letter-spacing: 0.02em;
-  color: var(--ink-soft);
+.kiosk-logo__img {
+  /* 원본 2227x406(≈5.5:1). 헤더 높이(--logo-h: 84px) 안에 맞춰 세로 기준으로 제한. */
+  height: calc(var(--logo-h) - 24px);
+  width: auto;
+  max-width: 90vw;
+  object-fit: contain;
+  display: block;
 }
 
 .screen {

@@ -1,16 +1,14 @@
-import { LOGO_TEXT } from '../data/treaty';
+import logoUrl from '../assets/logo-cheorwon-yahaeng.png';
 
 /**
  * 전 화면 상단 고정 로고.
- * 디자인 자산(로고 이미지) 미확보 → 텍스트 박스 플레이스홀더.
- * 실제 로고 교체 지점: src/assets/img/logo.* 로 교체 후 이 컴포넌트에서 <img> 사용.
+ * 보더 제공 로고 이미지(철원 국가유산 야행)를 번들에 베이크해 오프라인으로 표시한다.
+ * (텍스트가 사라지므로 alt 로 접근성 이름 유지 — SOO-1035)
  */
 export function Logo() {
   return (
     <header className="kiosk-logo">
-      <div className="kiosk-logo__box" role="img" aria-label={`${LOGO_TEXT} 로고`}>
-        {LOGO_TEXT}
-      </div>
+      <img className="kiosk-logo__img" src={logoUrl} alt="철원 국가유산 야행" />
     </header>
   );
 }
