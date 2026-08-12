@@ -302,6 +302,39 @@ button {
   min-width: 180px;
   border-bottom: 1.5px solid var(--ink);
 }
+/* 제10조 빈칸 깜박임(blink) — 자모 출력 완료 후 강조 */
+@keyframes treaty-blank-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+.treaty__blank-line--blink {
+  animation: treaty-blank-blink 1.1s ease-in-out infinite;
+}
+
+/* ── 협정문 안내(2단계) — 제10조 빈칸 확대 ─────────────────────── */
+.treaty-zoom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  text-align: center;
+}
+.treaty-zoom__article {
+  font-size: clamp(28px, 6vw, 56px);
+  font-weight: 800;
+  line-height: 1.4;
+  margin: 0;
+}
+.treaty__blank-line--zoom {
+  min-width: clamp(160px, 40vw, 360px);
+  border-bottom-width: 3px;
+  margin: 0 8px;
+}
 .treaty__footer {
   text-align: center;
   margin-top: 22px;
