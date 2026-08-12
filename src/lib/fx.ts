@@ -129,6 +129,92 @@ export function pickSpawnPoint(
   return { x, y };
 }
 
+/** 원(중심 x·y, 반지름 r) — 겹침 판정·스폰 배치 공용 표현. */
+export interface Circle {
+  readonly x: number;
+  readonly y: number;
+  readonly r: number;
+}
+
+/**
+ * 두 원이 시각적으로 겹치는지(중심 거리 < 반지름 합 + pad).
+ * pad 는 여유 간격(px) — 살짝 떨어뜨려 배치하고 싶을 때 양수.
+ */
+export function circlesOverlap(
+  ax: number,
+  ay: number,
+  ar: number,
+  bx: number,
+  by: number,
+  br: number,
+  pad = 0,
+): boolean {
+  const dx = ax - bx;
+  const dy = ay - by;
+  const rr = ar + br + pad;
+  return dx * dx + dy * dy < rr * rr;
+}
+
+/**
+ * 성장 중 다른 공과 겹치지 않도록 허용되는 최대 반지름(px).
+ * 각 이웃 공에 대해 (중심거리 - 이웃반지름 - pad) 이하로 제한한다.
+ * 이웃이 없으면 desired 를 그대로 반환. 음수는 0 으로 안전화.
+ * (단어 원은 물리로 밀어 올리므로 여기 others 에 넣지 않는다 — 공끼리만 비중첩.)
+ */
+export function maxGrowRadius(
+  x: number,
+  y: number,
+  desired: number,
+  others: readonly Circle[],
+  pad = 0,
+): number {
+  let cap = desired;
+  for (const o of others) {
+    const dx = x - o.x;
+    const dy = y - o.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const allowed = dist - o.r - pad;
+    if (allowed < cap) cap = allowed;
+  }
+  return Math.max(0, cap);
+}
+
+/**
+ * 후보 지점들 중 기존 점유 원(occupied)과 겹치지 않는 첫 지점을 반환.
+ * 모든 후보가 겹치면 null(→ 빈 공간 없음, 신규 스폰 중단 신호).
+ * r 은 신규 공의 시작 반지름.
+ */
+export function firstFreeSpawn(
+  candidates: readonly { x: number; y: number }[],
+  r: number,
+  occupied: readonly Circle[],
+  pad = 0,
+): { x: number; y: number } | null {
+  for (const c of candidates) {
+    let free = true;
+    for (const o of occupied) {
+      if (circlesOverlap(c.x, c.y, r, o.x, o.y, o.r, pad)) {
+        free = false;
+        break;
+      }
+    }
+    if (free) return c;
+  }
+  return null;
+}
+
+/**
+ * 모든 단어 바디가 정착했는지 — 전 속도(speed)가 임계값 이하.
+ * 비어 있으면(측정 전) false 로 보수적 처리(스폰 대기).
+ */
+export function bodiesSettled(speeds: readonly number[], threshold: number): boolean {
+  if (speeds.length === 0) return false;
+  for (const s of speeds) {
+    if (!(Math.abs(s) <= threshold)) return false;
+  }
+  return true;
+}
+
 /** 보라색 HSL 문자열. alpha < 1 이면 반투명. */
 export function purpleColor(
   hue: number,

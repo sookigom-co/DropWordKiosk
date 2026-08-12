@@ -2,14 +2,19 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_FX_SETTINGS,
   FX_RANGES,
+  bodiesSettled,
+  circlesOverlap,
   clampFx,
   clampRange,
   easeOutCubic,
+  firstFreeSpawn,
   growthRadius,
   maxCirclePx,
+  maxGrowRadius,
   pickSpawnPoint,
   purpleColor,
   randomTargetPx,
+  type Circle,
   type FxSettings,
 } from '../lib/fx';
 
@@ -124,6 +129,85 @@ describe('pickSpawnPoint', () => {
   it('y 는 하단 영역(45%~88%)', () => {
     expect(pickSpawnPoint(700, 500, 0.5, 0).y).toBeCloseTo(500 * 0.45);
     expect(pickSpawnPoint(700, 500, 0.5, 1).y).toBeCloseTo(500 * 0.88);
+  });
+});
+
+describe('circlesOverlap (SOO-1049 비중첩)', () => {
+  it('겹치는 두 원은 true', () => {
+    // 중심 거리 10, 반지름 합 12 → 겹침
+    expect(circlesOverlap(0, 0, 6, 10, 0, 6)).toBe(true);
+  });
+  it('떨어진 두 원은 false', () => {
+    // 중심 거리 20, 반지름 합 12 → 안 겹침
+    expect(circlesOverlap(0, 0, 6, 20, 0, 6)).toBe(false);
+  });
+  it('접점(거리 = 반지름 합)은 겹침 아님', () => {
+    expect(circlesOverlap(0, 0, 6, 12, 0, 6)).toBe(false);
+  });
+  it('pad 여유를 주면 접점도 겹침으로 본다', () => {
+    expect(circlesOverlap(0, 0, 6, 12, 0, 6, 2)).toBe(true);
+  });
+});
+
+describe('maxGrowRadius (SOO-1049 성장 정지)', () => {
+  it('이웃이 없으면 desired 그대로', () => {
+    expect(maxGrowRadius(0, 0, 50, [])).toBe(50);
+  });
+  it('이웃 공에 닿기 직전까지만 허용', () => {
+    // 이웃 중심 거리 40, 이웃 반지름 10 → 허용 30
+    const others: Circle[] = [{ x: 40, y: 0, r: 10 }];
+    expect(maxGrowRadius(0, 0, 50, others)).toBeCloseTo(30);
+  });
+  it('가장 가까운 이웃 기준으로 상한을 잡는다', () => {
+    const others: Circle[] = [
+      { x: 40, y: 0, r: 10 }, // 허용 30
+      { x: 25, y: 0, r: 5 }, // 허용 20 ← 최소
+    ];
+    expect(maxGrowRadius(0, 0, 50, others)).toBeCloseTo(20);
+  });
+  it('pad 만큼 더 보수적으로 제한하고 음수는 0', () => {
+    const others: Circle[] = [{ x: 8, y: 0, r: 10 }];
+    // 8 - 10 - 2 = -4 → 0
+    expect(maxGrowRadius(0, 0, 50, others, 2)).toBe(0);
+  });
+});
+
+describe('firstFreeSpawn (SOO-1049 비중첩 스폰)', () => {
+  const occupied: Circle[] = [{ x: 100, y: 100, r: 30 }];
+  it('겹치는 후보는 건너뛰고 빈 후보를 반환', () => {
+    const spot = firstFreeSpawn(
+      [
+        { x: 105, y: 100 }, // 겹침
+        { x: 300, y: 300 }, // 자유
+      ],
+      6,
+      occupied,
+      4,
+    );
+    expect(spot).toEqual({ x: 300, y: 300 });
+  });
+  it('모든 후보가 겹치면 null(스폰 중단 신호)', () => {
+    const spot = firstFreeSpawn([{ x: 100, y: 100 }], 6, occupied, 4);
+    expect(spot).toBeNull();
+  });
+  it('점유가 없으면 첫 후보를 그대로 반환', () => {
+    expect(firstFreeSpawn([{ x: 10, y: 10 }], 6, [])).toEqual({ x: 10, y: 10 });
+  });
+});
+
+describe('bodiesSettled (SOO-1049 정착 판정)', () => {
+  it('모든 속도가 임계 이하면 true', () => {
+    expect(bodiesSettled([0.1, 0.2, 0.05], 0.4)).toBe(true);
+  });
+  it('하나라도 임계 초과면 false(낙하 중)', () => {
+    expect(bodiesSettled([0.1, 3.2, 0.05], 0.4)).toBe(false);
+  });
+  it('빈 배열(측정 전)은 보수적으로 false', () => {
+    expect(bodiesSettled([], 0.4)).toBe(false);
+  });
+  it('음수 속도도 절대값으로 판정', () => {
+    expect(bodiesSettled([-0.3, 0.2], 0.4)).toBe(true);
+    expect(bodiesSettled([-1.5], 0.4)).toBe(false);
   });
 });
 
