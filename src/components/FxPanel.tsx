@@ -9,10 +9,10 @@ interface Row {
 }
 
 const ROWS: readonly Row[] = [
-  { key: 'fallSpeed', label: '낙하 속도', fmt: (v) => `${v.toFixed(1)}×` },
-  { key: 'spawnIntervalMs', label: '생성 간격', fmt: (v) => `${Math.round(v)}ms` },
-  { key: 'growDurationSec', label: '성장 시간', fmt: (v) => `${v.toFixed(1)}s` },
-  { key: 'maxSizeRatio', label: '최대 크기 비율', fmt: (v) => `${Math.round(v * 100)}%` },
+  { key: 'gravity', label: '중력 세기', fmt: (v) => `${v.toFixed(1)}×` },
+  { key: 'spawnIntervalMs', label: '보라 공 생성 간격', fmt: (v) => `${Math.round(v)}ms` },
+  { key: 'growDurationSec', label: '보라 공 성장 시간', fmt: (v) => `${v.toFixed(1)}s` },
+  { key: 'maxSizeRatio', label: '보라 공 최대 크기 비율', fmt: (v) => `${Math.round(v * 100)}%` },
   { key: 'hue', label: '보라 톤', fmt: (v) => `${Math.round(v)}°` },
 ];
 

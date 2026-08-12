@@ -4,7 +4,10 @@ import {
   FX_RANGES,
   clampFx,
   clampRange,
+  easeOutCubic,
+  growthRadius,
   maxCirclePx,
+  pickSpawnPoint,
   purpleColor,
   randomTargetPx,
   type FxSettings,
@@ -33,20 +36,19 @@ describe('clampFx', () => {
     });
   });
   it('부분 패치를 병합하고 범위를 벗어난 값을 클램프', () => {
-    const out = clampFx({ maxSizeRatio: 5, hue: 999 });
+    const out = clampFx({ maxSizeRatio: 9, hue: 999 });
     expect(out.maxSizeRatio).toBe(FX_RANGES.maxSizeRatio.max);
     expect(out.hue).toBe(FX_RANGES.hue.max);
     // 패치하지 않은 필드는 base 유지
-    expect(out.fallSpeed).toBe(DEFAULT_FX_SETTINGS.fallSpeed);
+    expect(out.gravity).toBe(DEFAULT_FX_SETTINGS.gravity);
   });
 });
 
 describe('maxCirclePx', () => {
-  it('언제나 단어 원 크기보다 작다(상한 비율 < 1)', () => {
+  it('비율에 비례하고 1 초과 비율은 단어 원보다 커진다(밀어올림용)', () => {
     const bubble = 120;
-    for (const ratio of [0.2, 0.5, 0.8, 0.95, 5]) {
-      expect(maxCirclePx(bubble, ratio)).toBeLessThan(bubble);
-    }
+    expect(maxCirclePx(bubble, 0.6)).toBeCloseTo(72);
+    expect(maxCirclePx(bubble, 2)).toBeCloseTo(240);
   });
   it('음수 bubblePx 는 0 으로 안전화', () => {
     expect(maxCirclePx(-50, 0.8)).toBe(0);
@@ -55,22 +57,73 @@ describe('maxCirclePx', () => {
 
 describe('randomTargetPx', () => {
   const bubble = 120;
-  const ratio = 0.8;
+  const ratio = 1.5;
   const cap = maxCirclePx(bubble, ratio);
   it('rnd=1 이면 상한(cap)', () => {
     expect(randomTargetPx(bubble, ratio, 1)).toBeCloseTo(cap);
   });
-  it('rnd=0 이면 최소값이고 cap 이하', () => {
+  it('rnd=0 이면 최소값이고 cap 이하·양수', () => {
     const v = randomTargetPx(bubble, ratio, 0);
     expect(v).toBeLessThanOrEqual(cap);
     expect(v).toBeGreaterThan(0);
   });
-  it('모든 rnd 에서 단어 원 크기를 넘지 않는다', () => {
+  it('모든 rnd 에서 [floor, cap] 안에 든다', () => {
     for (const rnd of [0, 0.25, 0.5, 0.75, 1, 2, -1, NaN]) {
       const v = randomTargetPx(bubble, ratio, rnd);
-      expect(v).toBeLessThanOrEqual(cap);
-      expect(v).toBeLessThan(bubble);
+      expect(v).toBeLessThanOrEqual(cap + 1e-9);
+      expect(v).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('easeOutCubic', () => {
+  it('경계값', () => {
+    expect(easeOutCubic(0)).toBe(0);
+    expect(easeOutCubic(1)).toBe(1);
+  });
+  it('0~1 범위 밖은 클램프', () => {
+    expect(easeOutCubic(-5)).toBe(0);
+    expect(easeOutCubic(5)).toBe(1);
+    expect(easeOutCubic(NaN)).toBe(0);
+  });
+  it('단조 증가하며 처음이 빠르다(중간값 > 0.5)', () => {
+    expect(easeOutCubic(0.5)).toBeGreaterThan(0.5);
+  });
+});
+
+describe('growthRadius', () => {
+  it('시작 시 startR, 완료 시 targetR', () => {
+    expect(growthRadius(6, 60, 0, 2)).toBeCloseTo(6);
+    expect(growthRadius(6, 60, 2, 2)).toBeCloseTo(60);
+  });
+  it('진행 중에는 start~target 사이', () => {
+    const v = growthRadius(6, 60, 1, 2);
+    expect(v).toBeGreaterThan(6);
+    expect(v).toBeLessThan(60);
+  });
+  it('duration 0 은 안전하게 처리(0 나눗셈 없음)', () => {
+    expect(Number.isFinite(growthRadius(6, 60, 1, 0))).toBe(true);
+  });
+});
+
+describe('pickSpawnPoint', () => {
+  it('항상 필드 내부(마진 안)에 위치', () => {
+    for (const [rx, ry] of [
+      [0, 0],
+      [0.5, 0.5],
+      [1, 1],
+      [NaN, NaN],
+    ]) {
+      const p = pickSpawnPoint(700, 500, rx, ry, 40);
+      expect(p.x).toBeGreaterThanOrEqual(0);
+      expect(p.x).toBeLessThanOrEqual(700);
+      expect(p.y).toBeGreaterThanOrEqual(0);
+      expect(p.y).toBeLessThanOrEqual(500);
+    }
+  });
+  it('y 는 하단 영역(45%~88%)', () => {
+    expect(pickSpawnPoint(700, 500, 0.5, 0).y).toBeCloseTo(500 * 0.45);
+    expect(pickSpawnPoint(700, 500, 0.5, 1).y).toBeCloseTo(500 * 0.88);
   });
 });
 

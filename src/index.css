@@ -216,11 +216,28 @@ button {
   position: relative;
   width: 100%;
   max-width: 720px;
+  min-height: clamp(420px, 60vh, 600px); /* 물리 낙하 영역 확보 + 측정 기준 */
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
   align-items: center;
   justify-content: center;
+}
+/* 물리 활성 시: 단어 원을 절대 배치하고 JS transform 으로 구동. */
+.bubble-field--physics {
+  display: block;
+  overflow: hidden; /* 밀려 올라간 원이 위로 넘칠 때 클리핑 */
+  touch-action: manipulation;
+}
+.bubble-field--physics .bubble {
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 0;
+  will-change: transform;
+}
+.bubble-field--physics .fx-circle-layer {
+  inset: 0; /* 물리 좌표(필드 좌상단 기준)와 원점 일치 */
 }
 .bubble {
   position: relative; /* 보라색 장식 레이어(fx-circle-layer) 위에 오도록 */
@@ -250,11 +267,15 @@ button {
 }
 .fx-circle {
   position: absolute;
+  top: 0;
+  left: 0;
   display: block;
+  width: 0;
+  height: 0;
+  opacity: 0; /* JS 첫 프레임 전 깜빡임 방지 */
   border-radius: 50%;
-  transform: translate(-50%, -50%); /* (left,top) 점을 중심으로 성장 */
   filter: blur(0.5px);
-  will-change: width, height, opacity;
+  will-change: transform, width, height, opacity;
 }
 
 .fx-panel-overlay {

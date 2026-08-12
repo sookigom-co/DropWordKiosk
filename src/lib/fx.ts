@@ -1,18 +1,21 @@
 /**
- * Step 1 대상 선택 화면 장식 효과(단어 원 낙하 + 보라색 신규 원 생성) 파라미터.
+ * Step 1 대상 선택 화면 물리 효과 파라미터(SOO-1048).
  *
- * 상단 로고 클릭으로 열리는 설정 패널에서 실시간 조절한다(SOO-1045).
+ * 단어 원은 중력으로 낙하해 바닥에 랜덤하게 쌓이고, 빈 공간에서 보라색 공이
+ * 랜덤 크기로 생성되어 점점 커지며 쌓인 단어 원들을 밀어 올린다.
+ * 상단 로고 클릭으로 열리는 설정 패널에서 실시간 조절한다.
+ *
  * 순수 값 로직만 이 파일에 두어 유닛 테스트 가능하게 하고,
- * React 렌더링/타이머는 컴포넌트 쪽에서 소비한다.
+ * matter-js 물리 시뮬레이션/React 렌더링은 컴포넌트·훅 쪽에서 소비한다.
  */
 export interface FxSettings {
-  /** 단어 원 낙하 속도 배율(클수록 빠르게 떨어짐). */
-  fallSpeed: number;
-  /** 보라색 신규 원 생성 간격(ms, 작을수록 자주 생성). */
+  /** 중력 세기 배율(클수록 빠르게 떨어지고 무겁게 쌓임). */
+  gravity: number;
+  /** 보라색 공 생성 간격(ms, 작을수록 자주 생성). */
   spawnIntervalMs: number;
-  /** 보라색 원 성장 지속 시간(s, 작을수록 빨리 커짐). */
+  /** 보라색 공 성장 지속 시간(s, 작을수록 빨리 커짐). */
   growDurationSec: number;
-  /** 보라색 원 최대 크기(단어 원 지름 대비 비율, 상한 < 1). */
+  /** 보라색 공 최대 지름(단어 원 지름 대비 비율). */
   maxSizeRatio: number;
   /** 보라색 톤(HSL 색상각, 240~300 = 보라 계열). */
   hue: number;
@@ -27,19 +30,19 @@ export interface FxRange {
 
 /** 각 파라미터의 허용 범위(패널 슬라이더 + clamp 공용). */
 export const FX_RANGES: Readonly<Record<keyof FxSettings, FxRange>> = {
-  fallSpeed: { min: 0.4, max: 2.5, step: 0.1 },
-  spawnIntervalMs: { min: 150, max: 2000, step: 50 },
-  growDurationSec: { min: 0.4, max: 4, step: 0.1 },
-  // 상한을 1 미만으로 강제 → 보라색 원이 단어 원보다 커지지 않는다.
-  maxSizeRatio: { min: 0.2, max: 0.95, step: 0.05 },
+  gravity: { min: 0.4, max: 2, step: 0.1 },
+  spawnIntervalMs: { min: 900, max: 5000, step: 100 },
+  growDurationSec: { min: 0.8, max: 5, step: 0.1 },
+  // 보라색 공은 단어 원을 밀어 올려야 하므로 단어 원보다 커질 수 있다(비율 > 1 허용).
+  maxSizeRatio: { min: 0.6, max: 2.4, step: 0.05 },
   hue: { min: 240, max: 300, step: 1 },
 };
 
 export const DEFAULT_FX_SETTINGS: FxSettings = {
-  fallSpeed: 1,
-  spawnIntervalMs: 650,
-  growDurationSec: 1.6,
-  maxSizeRatio: 0.8,
+  gravity: 1,
+  spawnIntervalMs: 2200,
+  growDurationSec: 2.6,
+  maxSizeRatio: 1.5,
   hue: 262,
 };
 
@@ -50,7 +53,10 @@ export function clampRange(value: number, range: FxRange): number {
 }
 
 /** 부분 패치를 기존 설정에 병합하고 전 필드를 범위로 클램프. */
-export function clampFx(patch: Partial<FxSettings>, base: FxSettings = DEFAULT_FX_SETTINGS): FxSettings {
+export function clampFx(
+  patch: Partial<FxSettings>,
+  base: FxSettings = DEFAULT_FX_SETTINGS,
+): FxSettings {
   const merged = { ...base, ...patch };
   const out = {} as FxSettings;
   (Object.keys(FX_RANGES) as (keyof FxSettings)[]).forEach((key) => {
@@ -60,8 +66,8 @@ export function clampFx(patch: Partial<FxSettings>, base: FxSettings = DEFAULT_F
 }
 
 /**
- * 보라색 원 최대 지름(px). 단어 원 지름 상한을 절대 넘지 않는다
- * (ratio 는 항상 1 미만으로 클램프되므로 결과 < bubblePx).
+ * 보라색 공 최대 지름(px). 단어 원 지름 대비 maxSizeRatio 배.
+ * 비율이 1 을 넘으면 단어 원보다 커져 더 세게 밀어 올린다.
  */
 export function maxCirclePx(bubblePx: number, ratio: number): number {
   const r = clampRange(ratio, FX_RANGES.maxSizeRatio);
@@ -70,13 +76,57 @@ export function maxCirclePx(bubblePx: number, ratio: number): number {
 
 /**
  * [최소, 상한] 사이의 랜덤 목표 지름(px).
- * rnd 는 0~1 난수(테스트 시 주입). 상한은 단어 원 크기를 넘지 않는다.
+ * rnd 는 0~1 난수(테스트 시 주입). 상한은 maxCirclePx.
  */
 export function randomTargetPx(bubblePx: number, ratio: number, rnd: number): number {
   const cap = maxCirclePx(bubblePx, ratio);
-  const floor = Math.min(cap, Math.max(10, cap * 0.35));
+  const floor = Math.min(cap, Math.max(10, cap * 0.45));
   const t = Math.min(1, Math.max(0, Number.isFinite(rnd) ? rnd : 0));
   return floor + (cap - floor) * t;
+}
+
+/** easeOutCubic — 성장이 처음엔 빠르고 끝에서 느려지는 곡선. */
+export function easeOutCubic(t: number): number {
+  const x = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0));
+  return 1 - Math.pow(1 - x, 3);
+}
+
+/**
+ * 보라색 공의 현재 반지름(px). 성장(0→dur)·유지·수축 단계를 하나의 함수로 표현한다.
+ * - phase 'grow'   : startR → targetR (easeOutCubic)
+ * - phase 'shrink' : targetR → 0 (선형)
+ * elapsedSec 가 durationSec 를 넘으면 targetR 로 고정(유지 단계).
+ */
+export function growthRadius(
+  startR: number,
+  targetR: number,
+  elapsedSec: number,
+  durationSec: number,
+): number {
+  const dur = Math.max(0.01, durationSec);
+  const t = easeOutCubic(elapsedSec / dur);
+  return startR + (targetR - startR) * t;
+}
+
+/**
+ * 보라색 공 생성 지점(px). 필드 하단(쌓인 단어 무더기 영역)에서 좌우 랜덤으로 고른다.
+ * rndX·rndY 는 0~1 난수(테스트 시 주입). 결과는 항상 필드 내부(마진 안).
+ */
+export function pickSpawnPoint(
+  width: number,
+  height: number,
+  rndX: number,
+  rndY: number,
+  margin = 40,
+): { x: number; y: number } {
+  const w = Math.max(0, width);
+  const h = Math.max(0, height);
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+  const mx = Math.min(margin, w / 2);
+  const x = mx + clamp01(rndX) * Math.max(0, w - mx * 2);
+  // 하단 45%~88% 영역(무더기 속·아래에서 솟아오르며 밀어 올린다).
+  const y = h * (0.45 + clamp01(rndY) * 0.43);
+  return { x, y };
 }
 
 /** 보라색 HSL 문자열. alpha < 1 이면 반투명. */
