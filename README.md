@@ -19,6 +19,17 @@ npm run dev            # 개발 서버
 #   http://localhost:5173/?mock=1
 ```
 
+> **dev 에서 실제 인쇄 시험 시 `VITE_PRINTER_BASE` 필수.**
+> 통합 배포(에이전트가 kiosk `dist/` 를 서빙)에서는 인쇄 호출이 same-origin 상대 경로(`''`)로 나가
+> 추가 설정이 필요 없다(SOO-1029). 하지만 dev 서버(Vite, 8080)는 SPA 만 서빙하므로 상대 경로가
+> 에이전트로 가지 않는다. dev 에서 실제 에이전트로 인쇄를 보내려면 에이전트 절대 주소를 명시한다:
+>
+> ```bash
+> VITE_PRINTER_BASE=http://127.0.0.1:8737 npm run dev
+> ```
+>
+> 재정의 우선순위: `?agent=` > `VITE_PRINTER_BASE` > same-origin 기본값(`''`).
+
 ### 검증 게이트
 
 ```bash
@@ -53,7 +64,11 @@ STEP2 형용사 선택(물리 낙하) → STEP3 동사 선택(정렬 낙하) →
 
 ## 인쇄 에이전트 계약 (v1)
 
-로컬 에이전트 `http://127.0.0.1:8737` (기본값, `VITE_PRINTER_BASE` 로 변경).
+인쇄 에이전트는 라즈베리파이 로컬 `http://127.0.0.1:8737` 에서 수신한다. 웹의 호출 Base URL 은
+**통합 배포(에이전트가 kiosk `dist/` 를 same-origin 으로 서빙, SOO-1027 옵션 B)에서 same-origin
+상대 경로(`''`)가 기본값**이며 추가 설정 없이 인쇄가 동작한다(SOO-1029). dev/외부 PC 시험에서는
+`VITE_PRINTER_BASE`(빌드 시) 또는 `?agent=`(런타임)로 절대 주소를 재정의한다 — 우선순위
+`?agent=` > `VITE_PRINTER_BASE` > same-origin 기본값.
 
 - `GET  /v1/printer/status` — 인쇄 전 상태 확인. 상태 코드(READY/NO_PAPER/COVER_OPEN/OFFLINE 등)를 반환.
 - `POST /v1/print` — `multipart/form-data`, 필드 `image` 에 협정문 PNG(640px 흑백) 전송.

@@ -1,7 +1,9 @@
 // 인쇄 에이전트 연동 클라이언트.
 // 계약(v1) 출처: DropWordPrintAgent `docs/api-contract-v1.md`
 //   (SOO-994 에서 확정·머지, https://github.com/sookigom-co/DropWordPrintAgent/blob/main/docs/api-contract-v1.md).
-//   - Base URL: http://127.0.0.1:8737 (라즈베리파이 로컬 인쇄 에이전트)
+//   - Base URL: 통합 배포(에이전트가 kiosk dist/ 를 서빙, SOO-1027 옵션 B) 시 same-origin 상대 경로.
+//               인쇄 에이전트 자체는 라즈베리파이 로컬 127.0.0.1:8737 에서 수신한다.
+//               dev(Vite 8080)에서는 상대 경로가 에이전트로 가지 않으므로 VITE_PRINTER_BASE 로 재정의한다.
 //   - GET  /v1/printer/status  : 프린터 사전 상태 확인
 //   - POST /v1/print           : JSON base64 전송
 //       요청  { "imagePngBase64": "<PNG base64>", "cut": true, "meta"?: { modifier, target, action } }
@@ -54,7 +56,10 @@ export interface PrintClient {
   print(png: Blob, meta?: PrintMeta): Promise<PrintResult>;
 }
 
-const DEFAULT_BASE = 'http://127.0.0.1:8737';
+// 통합 배포(에이전트가 kiosk dist/ 를 same-origin 으로 서빙)에서는 상대 경로로 호출한다.
+// 빈 문자열이면 fetch(`/v1/print`) 가 현재 origin 으로 나가 추가 설정 없이 에이전트에 도달한다.
+// dev/외부 PC 시험은 VITE_PRINTER_BASE / ?agent= 로 절대 URL 을 재정의한다.
+const DEFAULT_BASE = '';
 const STATUS_TIMEOUT_MS = 4000;
 const PRINT_TIMEOUT_MS = 20000;
 
