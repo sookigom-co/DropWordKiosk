@@ -38,6 +38,17 @@ npm run lint           # eslint
 npm test               # vitest (josa 을/를 · 문장 조합 유닛 테스트)
 ```
 
+### 무중단 재배포 (통합 배포)
+
+통합 배포에서는 SPA 갱신 시 에이전트를 재시작할 필요 없이 정적 `dist/` 만 교체하면 된다.
+빌드 후 `deploy/redeploy-dist.sh` 로 rsync 원자적 갱신을 수행한다(SOO-1032).
+
+```bash
+npm run build                      # dist/ 생성
+deploy/redeploy-dist.sh            # 기본 SRC=/opt/dropword-kiosk/dist → /var/www/dropword-kiosk
+deploy/redeploy-dist.sh ./dist     # 다른 SRC 경로 지정도 가능
+```
+
 ## 화면 흐름 (12단계 / 17화면)
 
 시작 → 인트로 → 협정문(1~9조 좌→우 등장 후 제10조 빈칸 확대) → STEP1 명사 선택(원형 버블) →
