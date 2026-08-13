@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createStep1World,
   makeWordBody,
-  makePurpleBody,
+  makeBubbleBody,
   addBody,
+  addCeiling,
   setCircleRadius,
   stepEngine,
   bodyCenter,
@@ -12,64 +13,58 @@ import {
 import {
   areaFilled,
   bodiesSettled,
+  bottomSpawnPoint,
+  buoyancyForce,
   burstCount,
   easeOutCubic,
   FILL_STOP_RATIO,
   firstFreeSpawn,
   growthRadius,
-  maxGrowRadius,
-  pickSpawnPointBand,
   purpleColor,
   randomTargetPx,
   referenceBubblePx,
-  spawnBetweenBodies,
+  swayForce,
   type Circle,
   type FxSettings,
 } from '../lib/fx';
 import type { WordItem } from '../data/words';
 
-/** 렌더할 보라색 공(React 상태 — 생성/제거 시에만 변경, 위치·크기는 명령형). */
+/** 렌더할 보라색 버블(React 상태 — 생성/제거 시에만 변경, 위치·크기는 명령형). */
 export interface PurpleView {
   id: number;
   color: string;
 }
 
 /**
- * 세션 동안 유지되는 보라색 공 상한(성능 안전판).
- * 공은 소멸하지 않으므로(SOO-1049) 비중첩 스폰이 실질 상한을 만들지만,
+ * 세션 동안 유지되는 보라색 버블 상한(성능 안전판).
+ * 버블은 소멸하지 않으므로(SOO-1049) 비중첩 스폰·물리 충돌이 실질 상한을 만들지만,
  * 라즈베리파이 부하 폭주를 막기 위한 하드 캡을 둔다.
- * 보더 요청(SOO-1049 후속)으로 화면을 공으로 "가득 채우는" 것이 목표이므로,
- * 비중첩 패킹(빈 공간 소진)이 실질 상한이 되도록 하드 캡을 넉넉히 둔다.
  */
-const MAX_PURPLE = 220;
+const MAX_PURPLE = 160;
 /** 단어 원 낙하 시작 간격(ms) — 우수수 떨어지는 스태거. */
 const RELEASE_STAGGER = 110;
-/** 보라 공 시작 반지름(px). */
+/** 보라 버블 시작 반지름(px) — 하단에서 작게 태어나 상승하며 목표 크기로 성장. */
 const PURPLE_START_R = 6;
 /**
- * 스폰 후보 시도 횟수 — 이 횟수 안에 빈 공간을 못 찾으면 이번 스폰 건너뜀.
- * 화면이 촘촘히 찰수록 남은 틈이 작아지므로, "가득 채움"을 위해 넉넉히 시도한다.
+ * 하단 스폰 후보 시도 횟수(SOO-1057) — 이 횟수 안에 바닥선에서 다른 버블과
+ * 겹치지 않는 자리를 못 찾으면 이번 스폰을 건너뛴다(기존 버블은 유지 — 영속).
  */
-const SPAWN_TRIES = 40;
-/**
- * 스폰 위치 우선순위(보더 요청 SOO-1049 후속)를 위해 티어별로 나눈 시도 횟수.
- * firstFreeSpawn 은 후보 배열 순서대로 첫 빈자리를 고르므로, 후보를
- * [단어 사이 → 하단 → 상단] 순으로 쌓으면 그 우선순위대로 스폰된다.
- * 세 티어 합 = SPAWN_TRIES 를 유지(가득 채움 시도 총량 보존).
- */
-const SPAWN_TRIES_PER_TIER = Math.ceil(SPAWN_TRIES / 3);
-/** 하단 밴드(높이 대비): 단어 무더기가 쌓이는 아래 절반. */
-const BOTTOM_BAND: readonly [number, number] = [0.5, 0.92];
-/** 상단 밴드(높이 대비): 마진 아래 위쪽 절반(최후 순위). */
-const TOP_BAND: readonly [number, number] = [0.06, 0.5];
-/** 스폰 시 기존 공·단어와 유지할 최소 여유 간격(px, 작을수록 촘촘히 채움). */
-const SPAWN_PAD = 2;
-/** 성장 시 다른 공과 유지할 최소 여유 간격(px, 시각적 겹침 0 보장). */
-const GROW_PAD = 1;
+const SPAWN_TRIES = 24;
+/** 스폰 시 기존 버블과 유지할 최소 여유 간격(px). */
+const SPAWN_PAD = 3;
 /** 정착 판정 속도 임계값(matter speed). 이 이하가 유지되면 멈춘 것으로 본다. */
 const SETTLE_SPEED = 0.4;
 /** 정착 유지 시간(ms) — 임계 이하가 이만큼 지속돼야 낙하 완료로 확정. */
 const SETTLE_HOLD_MS = 450;
+/**
+ * 부력 배율(SOO-1057) — matter 중력의 몇 배 힘을 위로 실을지. 1 초과면 순힘이
+ * 위를 향해 버블이 떠오른다(가속도 = g·scale·(factor−1), 질량 무관).
+ */
+const BUOYANCY_FACTOR = 1.7;
+/** 좌우 흔들림 세기(가속도 진폭) — 풍선/기포 느낌의 자연스러운 사행. */
+const SWAY_AMPLITUDE = 0.0006;
+/** 좌우 흔들림 각속도(rad/s). */
+const SWAY_FREQ = 1.6;
 
 interface WordSim {
   id: string;
@@ -86,6 +81,8 @@ interface PurpleSim {
   growDurMs: number;
   /** 현재 렌더 반지름(px) — 단조 증가, 절대 줄지 않는다. */
   curR: number;
+  /** 좌우 흔들림 위상 시드(버블마다 다르게 사행). */
+  phase: number;
 }
 
 export interface Step1PhysicsApi {
@@ -93,15 +90,17 @@ export interface Step1PhysicsApi {
   engaged: boolean;
   /** 단어 원 버튼 ref 등록. */
   registerBubble: (id: string) => (el: HTMLButtonElement | null) => void;
-  /** 렌더 대상 보라색 공 목록. */
+  /** 렌더 대상 보라색 버블 목록. */
   purples: PurpleView[];
-  /** 보라색 공 span ref 등록. */
+  /** 보라색 버블 span ref 등록. */
   registerPurple: (id: number) => (el: HTMLSpanElement | null) => void;
 }
 
 /**
- * Step1 물리 시뮬레이션 구동 훅(SOO-1048).
- * matter-js 로 단어 원 중력 낙하·쌓임과 보라색 공 성장·밀어올림을 시뮬레이션하고,
+ * Step1 물리 시뮬레이션 구동 훅(SOO-1048 → SOO-1057 개편).
+ * matter-js 로 단어 원 중력 낙하·쌓임을 시뮬레이션하고, 낙하 완료 후에는 보라색
+ * 버블이 **스테이지 하단에서 생성되어 부력으로 떠오르며**(동적 강체) 단어를 물리적으로
+ * 밀어 올린다. 버블끼리는 스폰 시 겹침 회피 + 동적 충돌로 어떤 시점에도 겹치지 않는다.
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
  */
 export function useStep1Physics(
@@ -183,10 +182,11 @@ export function useStep1Physics(
     // 낙하 완료(정착) 판정 상태.
     let settled = false;
     let settleSince = -1; // 속도 임계 이하 진입 시각(ms), 리셋되면 -1
+    let ceilingAdded = false; // 정착 후 상단 벽 1회 추가(버블이 화면 밖으로 날아가지 않게).
 
     /**
-     * 현재 점유 영역(기존 보라 공 + 낙하 완료된 단어 원)을 원 목록으로 수집.
-     * 비중첩 스폰·성장 상한·면적 채움 판정에 공용으로 쓴다.
+     * 현재 점유 영역(기존 보라 버블 + 낙하 완료된 단어 원)을 원 목록으로 수집.
+     * 면적 채움 판정(스폰 중단)에 쓴다.
      */
     const collectOccupied = (): Circle[] => {
       const occupied: Circle[] = [];
@@ -202,63 +202,27 @@ export function useStep1Physics(
     };
 
     /**
-     * 빈 공간에 보라 공 하나 스폰 시도. 기존 공·단어와 겹치지 않는 후보를
-     * SPAWN_TRIES 번 안에 찾으면 생성하고 true, 못 찾으면 생성하지 않고 false.
-     * (false 여도 기존 공은 유지 — SOO-1049 영속 규칙.)
+     * 하단(바닥선 근처)에 보라 버블 하나 스폰 시도(SOO-1057).
+     * 다른 버블과 겹치지 않는 바닥 자리를 SPAWN_TRIES 안에 찾으면 동적 버블을 만들어
+     * true, 못 찾으면 생성하지 않고 false. (false 여도 기존 버블은 유지 — 영속.)
+     * 단어는 스폰 겹침 판정에서 제외 — 버블이 단어 사이/아래에서 솟아 단어를 밀어 올린다.
      */
     const trySpawnPurple = (nowMs: number): boolean => {
       const s = settingsRef.current;
-      const occupied = collectOccupied();
-      // 보더 요청(SOO-1049 후속): 무더기 위가 아니라 "정착한 단어 원들 사이"에서 솟아오르게.
-      const wordCenters = wordSims
-        .filter((ws) => ws.released)
-        .map((ws) => ({ x: ws.body.position.x, y: ws.body.position.y }));
-      const margin = 40;
-      const clampX = (v: number) => Math.min(width - margin, Math.max(margin, v));
-      const clampY = (v: number) => Math.min(height - margin, Math.max(margin, v));
-      // 보더 요청(SOO-1049 후속): 스폰 위치 우선순위 = ①단어 사이(최우선)
-      // → ②하단(차우선) → ③상단(최후). firstFreeSpawn 이 후보 순서대로 첫 빈자리를
-      // 고르므로, 후보 배열을 이 우선순위대로 쌓기만 하면 된다.
+      // 비중첩 기준 = 기존 버블들만(현재 반지름 + 여유). 단어는 밀어 올림 대상이라 제외.
+      const bubbleOccupied: Circle[] = purpleSims.map((p) => ({
+        x: p.body.position.x,
+        y: p.body.position.y,
+        r: p.curR,
+      }));
       const candidates: { x: number; y: number }[] = [];
-      // 티어 1 — 단어 사이(최우선). 단어가 없으면 건너뜀.
-      for (let k = 0; k < SPAWN_TRIES_PER_TIER; k++) {
-        const between = spawnBetweenBodies(
-          wordCenters,
-          Math.random(),
-          Math.random(),
-          Math.random(),
-          Math.random(),
-        );
-        if (between) candidates.push({ x: clampX(between.x), y: clampY(between.y) });
+      for (let k = 0; k < SPAWN_TRIES; k++) {
+        candidates.push(bottomSpawnPoint(width, height, Math.random(), PURPLE_START_R));
       }
-      // 티어 2 — 하단(차우선).
-      for (let k = 0; k < SPAWN_TRIES_PER_TIER; k++) {
-        const raw = pickSpawnPointBand(
-          width,
-          height,
-          Math.random(),
-          Math.random(),
-          BOTTOM_BAND[0],
-          BOTTOM_BAND[1],
-        );
-        candidates.push({ x: clampX(raw.x), y: clampY(raw.y) });
-      }
-      // 티어 3 — 상단(최후).
-      for (let k = 0; k < SPAWN_TRIES_PER_TIER; k++) {
-        const raw = pickSpawnPointBand(
-          width,
-          height,
-          Math.random(),
-          Math.random(),
-          TOP_BAND[0],
-          TOP_BAND[1],
-        );
-        candidates.push({ x: clampX(raw.x), y: clampY(raw.y) });
-      }
-      const spot = firstFreeSpawn(candidates, PURPLE_START_R, occupied, SPAWN_PAD);
-      if (!spot) return false; // 빈 공간 없음 → 이번 스폰 건너뜀.
+      const spot = firstFreeSpawn(candidates, PURPLE_START_R, bubbleOccupied, SPAWN_PAD);
+      if (!spot) return false; // 바닥에 빈 자리 없음 → 이번 스폰 건너뜀.
       const targetR = randomTargetPx(bubblePx, s.maxSizeRatio, Math.random()) / 2;
-      const body = makePurpleBody(spot.x, spot.y, PURPLE_START_R);
+      const body = makeBubbleBody(spot.x, spot.y, PURPLE_START_R);
       addBody(world, body);
       const id = ++purpleId;
       purpleSims.push({
@@ -268,6 +232,7 @@ export function useStep1Physics(
         targetR,
         growDurMs: s.growDurationSec * 1000,
         curR: PURPLE_START_R,
+        phase: Math.random() * Math.PI * 2,
       });
       setPurples((ps) => [...ps, { id, color: purpleColor(s.hue, { alpha: 0.5 }) }]);
       return true;
@@ -292,6 +257,15 @@ export function useStep1Physics(
         }
       }
 
+      // 부력·좌우 흔들림: matter 가 중력을 더하기 전에 버블에 위로 뜨는 힘을 싣는다.
+      const gScale = world.engine.gravity.scale;
+      const gY = world.engine.gravity.y;
+      for (const p of purpleSims) {
+        p.body.force.y += buoyancyForce(p.body.mass, gY, gScale, BUOYANCY_FACTOR);
+        const phase = (nowMs / 1000) * SWAY_FREQ + p.phase;
+        p.body.force.x += swayForce(p.body.mass, phase, SWAY_AMPLITUDE);
+      }
+
       stepEngine(world, dt);
 
       // 정착 판정: 모든 단어가 방출되고 전 속도가 임계 이하로 SETTLE_HOLD_MS 유지.
@@ -305,9 +279,14 @@ export function useStep1Physics(
           settleSince = -1;
         }
       }
+      // 정착 직후 상단 천장 1회 추가 — 떠오른 버블이 상단에 쌓이고 화면 밖으로 안 날아감.
+      if (settled && !ceilingAdded) {
+        addCeiling(world);
+        ceilingAdded = true;
+      }
 
-      // 보라 공 생성 — 낙하 완료 후에만, 빈 공간이 있고 화면이 4/5 미만일 때만.
-      // 한 틱에 3~5개를 랜덤하게 동시 생성(보더 요청 SOO-1049 후속).
+      // 보라 버블 생성 — 낙하 완료 후에만, 바닥에 빈 자리가 있고 화면이 가득 차기 전까지.
+      // 한 틱에 3~5개를 랜덤하게 동시 생성.
       if (
         settled &&
         nowMs - lastSpawn >= settingsRef.current.spawnIntervalMs &&
@@ -317,15 +296,15 @@ export function useStep1Physics(
         let spawnedAny = false;
         for (let b = 0; b < burst; b++) {
           if (purpleSims.length >= MAX_PURPLE) break;
-          // 전체 면적의 4/5 이상 차면 신규 스폰 중단(이미 생성된 공은 유지 — 영속).
+          // 화면이 가득 차면 신규 스폰 중단(이미 생성된 버블은 유지 — 영속).
           if (areaFilled(collectOccupied(), width, height, FILL_STOP_RATIO)) break;
           if (trySpawnPurple(nowMs)) spawnedAny = true;
-          else break; // 빈 공간 없음 → 이번 버스트 종료.
+          else break; // 바닥에 빈 자리 없음 → 이번 버스트 종료.
         }
         if (spawnedAny) lastSpawn = nowMs;
       }
 
-      // 보라 공 성장(영속 — 수축·제거 없음). 다른 공과 겹치면 성장 정지.
+      // 보라 버블 성장(영속 — 수축·제거 없음). 동적 강체라 성장 시 겹치면 충돌로 밀려난다.
       for (let i = 0; i < purpleSims.length; i++) {
         const p = purpleSims[i];
         const age = nowMs - p.bornAt;
@@ -333,16 +312,8 @@ export function useStep1Physics(
           age >= p.growDurMs
             ? p.targetR
             : growthRadius(PURPLE_START_R, p.targetR, age / 1000, p.growDurMs / 1000);
-        // 다른 보라 공과 겹치지 않도록 성장 상한 계산(공끼리 비중첩).
-        const others: Circle[] = [];
-        for (let j = 0; j < purpleSims.length; j++) {
-          if (j === i) continue;
-          const q = purpleSims[j];
-          others.push({ x: q.body.position.x, y: q.body.position.y, r: q.curR });
-        }
-        const cap = maxGrowRadius(p.body.position.x, p.body.position.y, desired, others, GROW_PAD);
-        // 단조 증가: 절대 줄지 않는다(공 영속). 상한이 현재보다 작으면 현재 유지(정지).
-        const r = Math.max(p.curR, Math.min(desired, cap));
+        // 단조 증가: 절대 줄지 않는다(버블 영속).
+        const r = Math.max(p.curR, desired);
         p.curR = r;
         setCircleRadius(p.body, r);
         const alpha = 0.15 + 0.4 * easeOutCubic(Math.min(1, age / p.growDurMs));
@@ -383,7 +354,7 @@ function writeBubble(el: HTMLElement, c: { x: number; y: number; angle: number }
   el.style.transform = `translate(${c.x - w / 2}px, ${c.y - h / 2}px) rotate(${c.angle}rad)`;
 }
 
-/** 보라색 공 DOM 위치·크기·투명도 갱신. */
+/** 보라색 버블 DOM 위치·크기·투명도 갱신. */
 function writePurple(
   el: HTMLElement,
   c: { x: number; y: number; angle: number },

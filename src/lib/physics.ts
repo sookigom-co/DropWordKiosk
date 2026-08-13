@@ -81,14 +81,43 @@ export function makeBoxBody(x: number, y: number, width: number, height: number)
 }
 
 /**
- * 보라색 공(정적 강체) 생성. 정적이라 중력에 떨어지지 않고 제자리에서
- * 반지름이 커지며 주변 동적 단어 원을 밀어낸다(위로 들어 올린다).
+ * 보라색 버블(동적 강체) 생성 — SOO-1057.
+ *
+ * 정적 공(제자리 성장)에서 **동적 버블(하단 스폰 → 부력 상승)**으로 전환한다.
+ * 낮은 밀도·낮은 마찰·약한 튕김으로 물속 기포처럼 가볍게 떠오르고, `frictionAir`
+ * 로 완만한 종단속도를 갖는다. 부력·좌우 흔들림은 매 프레임 훅에서 force 로 준다
+ * (`buoyancyForce`/`swayForce`). 동적 강체라 버블끼리·단어와 충돌 해소되어
+ * 어떤 시점에도 서로 겹치지 않고(비중첩), 떠오르며 단어를 물리적으로 밀어 올린다.
+ * world 에는 아직 추가하지 않는다.
  */
-export function makePurpleBody(x: number, y: number, radius: number): Matter.Body {
+export function makeBubbleBody(x: number, y: number, radius: number): Matter.Body {
   return Bodies.circle(x, y, Math.max(1, radius), {
+    restitution: 0.08,
+    friction: 0.02,
+    frictionStatic: 0.05,
+    // 완만한 종단속도(물속 기포처럼) — 너무 빠르면 단어를 뚫고 지나가 못 밀어 올린다.
+    frictionAir: 0.05,
+    // 단어 원과 동일 밀도 — 상승 속도는 밀도와 무관(가속도=g·scale·(factor−1))하지만,
+    // 순 부력(=mass·g·scale·(factor−1))은 질량에 비례하므로 밀도를 충분히 둬야
+    // 떠오르는 버블이 단어를 실제로 밀어 올릴 힘을 갖는다(SOO-1057 요구 5).
+    density: 0.0016,
+  });
+}
+
+/**
+ * 필드 상단에 정적 "천장" 벽을 추가한다(SOO-1057).
+ * 바닥선에서 스폰돼 부력으로 떠오른 버블이 화면 밖으로 날아가지 않고 상단에
+ * 차곡차곡 쌓이도록 막는다(소멸 금지 — SOO-1049 영속 규칙 유지). 벽 하단 모서리가
+ * y=0 에 오도록 배치. 단어 낙하가 끝난(정착) 뒤에 추가해 낙하 진입을 막지 않는다.
+ */
+export function addCeiling(world: Step1World): Matter.Body {
+  const ceiling = Bodies.rectangle(world.width / 2, -WALL / 2, world.width + WALL * 2, WALL, {
     isStatic: true,
     friction: 0.4,
   });
+  Composite.add(world.engine.world, ceiling);
+  world.walls.push(ceiling);
+  return ceiling;
 }
 
 /** world 에 강체 추가. */

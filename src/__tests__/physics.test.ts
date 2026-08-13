@@ -3,11 +3,13 @@ import {
   createStep1World,
   makeWordBody,
   makeBoxBody,
-  makePurpleBody,
+  makeBubbleBody,
   addBody,
+  addCeiling,
   setCircleRadius,
   stepEngine,
 } from '../lib/physics';
+import { buoyancyForce } from '../lib/fx';
 
 const W = 700;
 const H = 500;
@@ -46,24 +48,75 @@ describe('물리 — 중력 낙하·바닥 안착', () => {
   });
 });
 
-describe('물리 — 보라 공 성장이 단어 원을 밀어 올린다', () => {
-  it('정적 보라 공이 커지면 위에 있는 단어 원이 위로 밀린다', () => {
+describe('물리 — 떠오르는 보라 버블이 단어 원을 밀어 올린다(SOO-1057)', () => {
+  it('하단 스폰 동적 버블이 부력으로 떠오른다', () => {
+    const world = createStep1World(W, H, 1);
+    const bubble = makeBubbleBody(W / 2, H - 6, 6); // 바닥선 근처에서 출발
+    addBody(world, bubble);
+    const startY = bubble.position.y;
+    for (let i = 0; i < 120; i++) {
+      // 매 스텝 중력을 상쇄·역전하는 부력을 실어 위로 띄운다.
+      bubble.force.y += buoyancyForce(
+        bubble.mass,
+        world.engine.gravity.y,
+        world.engine.gravity.scale,
+        2,
+      );
+      stepEngine(world, 16);
+    }
+    // 위(y 감소)로 떠올랐다.
+    expect(bubble.position.y).toBeLessThan(startY - 20);
+  });
+
+  it('떠오르는 버블이 위의 단어 원을 밀어 올린다', () => {
     const world = createStep1World(W, H, 1);
     const word = makeWordBody(W / 2, -R, R);
     addBody(world, word);
     run(world, 240); // 바닥에 안착
+    addCeiling(world); // 정착 후 천장(실제 훅과 동일) — 버블이 밖으로 날아가지 않게.
     const restY = word.position.y;
 
-    // 단어 원 바로 아래(바닥 근처)에 보라 공 생성 후 점점 키운다.
-    const purple = makePurpleBody(W / 2, H, 6);
-    addBody(world, purple);
-    for (let i = 1; i <= 60; i++) {
-      setCircleRadius(purple, 6 + (i / 60) * 150); // 6 → 156px 반지름
+    // 정착한 단어 바로 아래(바닥 근처)에 버블 생성 → 부력으로 떠오르며 성장,
+    // 단어에 닿아 위로 밀어 올린다(BUOYANCY_FACTOR 와 같은 완만한 부력).
+    const bubble = makeBubbleBody(word.position.x, H - 6, 6);
+    addBody(world, bubble);
+    // 상승 중 단어의 최고점(y 최소)을 추적 — 리프트는 과도(단어가 옆으로 미끄러져
+    // 다시 내려올 수 있음)이므로 순간 최고점으로 상호작용을 검증한다.
+    let peakLift = 0;
+    for (let i = 1; i <= 300; i++) {
+      bubble.force.y += buoyancyForce(
+        bubble.mass,
+        world.engine.gravity.y,
+        world.engine.gravity.scale,
+        1.7, // 실제 훅의 BUOYANCY_FACTOR
+      );
+      setCircleRadius(bubble, Math.min(R, 6 + (i / 60) * R)); // 성장
       stepEngine(world, 16);
+      peakLift = Math.min(peakLift, word.position.y - restY);
     }
 
-    // 밀어 올려져 안착 높이보다 위(y 감소)로 이동.
-    expect(word.position.y).toBeLessThan(restY - 5);
+    // 상승 과정에서 단어가 안착 높이보다 뚜렷하게 위로 밀려 올라갔다.
+    expect(peakLift).toBeLessThan(-20);
+  });
+});
+
+describe('addCeiling — 떠오른 버블이 화면 밖으로 날아가지 않는다(SOO-1057)', () => {
+  it('천장이 있으면 강한 부력에도 버블이 상단(y=0) 위로 넘어가지 않는다', () => {
+    const world = createStep1World(W, H, 1);
+    addCeiling(world);
+    const bubble = makeBubbleBody(W / 2, H - 6, 20);
+    addBody(world, bubble);
+    for (let i = 0; i < 300; i++) {
+      bubble.force.y += buoyancyForce(
+        bubble.mass,
+        world.engine.gravity.y,
+        world.engine.gravity.scale,
+        5, // 매우 강한 부력
+      );
+      stepEngine(world, 16);
+    }
+    // 천장에 막혀 중심이 반지름(≈20)만큼 아래에 머문다(상단을 뚫지 않음).
+    expect(bubble.position.y).toBeGreaterThan(0);
   });
 });
 
