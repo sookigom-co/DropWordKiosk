@@ -18,6 +18,7 @@ import {
   pickSpawnPoint,
   purpleColor,
   randomTargetPx,
+  spawnBetweenBodies,
   type Circle,
   type FxSettings,
 } from '../lib/fx';
@@ -173,6 +174,50 @@ describe('maxGrowRadius (SOO-1049 성장 정지)', () => {
     const others: Circle[] = [{ x: 8, y: 0, r: 10 }];
     // 8 - 10 - 2 = -4 → 0
     expect(maxGrowRadius(0, 0, 50, others, 2)).toBe(0);
+  });
+});
+
+describe('spawnBetweenBodies (SOO-1049 후속 — 단어 사이 스폰)', () => {
+  it('빈 목록은 null(폴백 신호)', () => {
+    expect(spawnBetweenBodies([], 0, 0, 0.5, 0.5)).toBeNull();
+  });
+  it('단어 1개면 그 원 부근(지터 0 이면 정확히 중심)', () => {
+    const p = spawnBetweenBodies([{ x: 100, y: 200 }], 0, 0, 0.5, 0.5);
+    expect(p).toEqual({ x: 100, y: 200 });
+  });
+  it('두 원의 중점을 반환(지터 0)', () => {
+    const p = spawnBetweenBodies(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      0, // i=0
+      0.99, // j=1
+      0.5, // jitterX 중앙 → 0
+      0.5, // jitterY 중앙 → 0
+    );
+    expect(p).toEqual({ x: 50, y: 20 });
+  });
+  it('같은 인덱스가 뽑히면 다른 원으로 회피(중점이 자기 자신이 아님)', () => {
+    const p = spawnBetweenBodies(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+      0, // i=0
+      0, // j=0 → 회피되어 j=1
+      0.5,
+      0.5,
+    );
+    expect(p).toEqual({ x: 50, y: 0 });
+  });
+  it('지터는 ±jitter 범위 안에서 중점을 흔든다', () => {
+    const bodies = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+    ];
+    const p = spawnBetweenBodies(bodies, 0, 0.99, 1, 0, 24); // jx=+24, jy=-24
+    expect(p).toEqual({ x: 74, y: -24 });
   });
 });
 
