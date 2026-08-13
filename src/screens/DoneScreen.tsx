@@ -30,7 +30,7 @@ export function DoneScreen({ onReset, previewUrl, mock = false }: Props) {
 
       {mock && previewUrl && (
         <div className="preview-panel">
-          <p className="screen__lead">[mock] 생성된 협정문 미리보기 (640px 흑백)</p>
+          <p className="screen__lead">[mock] 생성된 협정문 미리보기 (432px 흑백)</p>
           <img src={previewUrl} alt="완성된 평화 협정문 인쇄 미리보기" />
           <div className="preview-actions">
             <a className="btn-next" href={previewUrl} download="peace-treaty.png">

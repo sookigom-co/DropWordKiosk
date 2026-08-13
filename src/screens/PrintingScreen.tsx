@@ -13,7 +13,7 @@ interface Props {
 
 /**
  * 화면12 — 인쇄 중.
- * 협정문 PNG(640px 흑백)를 만들고, 프린터 상태 확인 후 전송한다.
+ * 협정문 PNG(432px 흑백)를 만들고, 프린터 상태 확인 후 전송한다.
  * 실패(NO_PAPER/COVER_OPEN/OFFLINE/타임아웃)는 스태프 호출 화면으로 분기한다.
  */
 export function PrintingScreen({ client, sentence, onSuccess, onError }: Props) {
