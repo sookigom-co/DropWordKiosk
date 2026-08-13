@@ -31,18 +31,24 @@ export interface FxRange {
 /** 각 파라미터의 허용 범위(패널 슬라이더 + clamp 공용). */
 export const FX_RANGES: Readonly<Record<keyof FxSettings, FxRange>> = {
   gravity: { min: 0.4, max: 2, step: 0.1 },
-  spawnIntervalMs: { min: 900, max: 5000, step: 100 },
-  growDurationSec: { min: 0.8, max: 5, step: 0.1 },
+  // 보더 요청(SOO-1049 후속): 최소 0.1s(=100ms)까지 빠르게 생성 허용.
+  spawnIntervalMs: { min: 100, max: 5000, step: 100 },
+  // 보더 요청: 최소 0.1s 까지 빠른 성장 허용.
+  growDurationSec: { min: 0.1, max: 5, step: 0.1 },
   // 보라색 공은 단어 원을 밀어 올려야 하므로 단어 원보다 커질 수 있다(비율 > 1 허용).
-  maxSizeRatio: { min: 0.6, max: 2.4, step: 0.05 },
+  maxSizeRatio: { min: 0.3, max: 2.4, step: 0.05 },
   hue: { min: 240, max: 300, step: 1 },
 };
 
+/**
+ * 기본 효과 설정. 보더 요청(SOO-1049 후속)에 맞춘 값:
+ * - 생성 간격 0.1s(100ms) · 성장 시간 0.2s · 최대 크기 비율 50%.
+ */
 export const DEFAULT_FX_SETTINGS: FxSettings = {
   gravity: 1,
-  spawnIntervalMs: 2200,
-  growDurationSec: 2.6,
-  maxSizeRatio: 1.5,
+  spawnIntervalMs: 100,
+  growDurationSec: 0.2,
+  maxSizeRatio: 0.5,
   hue: 262,
 };
 
@@ -201,6 +207,44 @@ export function firstFreeSpawn(
     if (free) return c;
   }
   return null;
+}
+
+/**
+ * 화면이 이 비율 이상 차면 신규 보라 공 생성을 멈춘다(SOO-1049 후속, 보더 요청 "2/3").
+ * 이미 생성된 공은 유지(영속) — 스폰만 중단.
+ */
+export const FILL_STOP_RATIO = 2 / 3;
+
+/**
+ * 한 번의 스폰 틱에서 동시에 생성할 공 개수(2~3개 랜덤, 보더 요청).
+ * rnd 는 0~1 난수(테스트 시 주입) — 0.5 미만이면 2개, 이상이면 3개.
+ */
+export function burstCount(rnd: number): number {
+  const t = Math.min(1, Math.max(0, Number.isFinite(rnd) ? rnd : 0));
+  return t < 0.5 ? 2 : 3;
+}
+
+/** 원들이 차지하는 총 면적(π·r² 합). 겹침은 무시(비중첩 배치 전제). */
+export function circlesArea(circles: readonly Circle[]): number {
+  let a = 0;
+  for (const c of circles) {
+    if (Number.isFinite(c.r) && c.r > 0) a += Math.PI * c.r * c.r;
+  }
+  return a;
+}
+
+/**
+ * 점유 원들의 총 면적이 필드 면적의 threshold 비율 이상인지(스폰 중단 판정).
+ * 겹침을 무시한 상한 근사라 실제보다 다소 크게 잡히지만, "가득 참" 판정에는 안전한 방향.
+ */
+export function areaFilled(
+  occupied: readonly Circle[],
+  fieldW: number,
+  fieldH: number,
+  threshold: number,
+): boolean {
+  const field = Math.max(1, Math.max(0, fieldW) * Math.max(0, fieldH));
+  return circlesArea(occupied) >= field * threshold;
 }
 
 /**

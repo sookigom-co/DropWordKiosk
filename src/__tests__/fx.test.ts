@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_FX_SETTINGS,
+  FILL_STOP_RATIO,
   FX_RANGES,
+  areaFilled,
   bodiesSettled,
+  burstCount,
+  circlesArea,
   circlesOverlap,
   clampFx,
   clampRange,
@@ -208,6 +212,54 @@ describe('bodiesSettled (SOO-1049 정착 판정)', () => {
   it('음수 속도도 절대값으로 판정', () => {
     expect(bodiesSettled([-0.3, 0.2], 0.4)).toBe(true);
     expect(bodiesSettled([-1.5], 0.4)).toBe(false);
+  });
+});
+
+describe('DEFAULT_FX_SETTINGS (SOO-1049 후속 보더 요청 값)', () => {
+  it('생성 간격 100ms · 성장 0.2s · 최대 비율 50%', () => {
+    expect(DEFAULT_FX_SETTINGS.spawnIntervalMs).toBe(100);
+    expect(DEFAULT_FX_SETTINGS.growDurationSec).toBe(0.2);
+    expect(DEFAULT_FX_SETTINGS.maxSizeRatio).toBe(0.5);
+  });
+});
+
+describe('burstCount (SOO-1049 후속 2~3개 동시 생성)', () => {
+  it('rnd < 0.5 는 2개, 이상은 3개', () => {
+    expect(burstCount(0)).toBe(2);
+    expect(burstCount(0.49)).toBe(2);
+    expect(burstCount(0.5)).toBe(3);
+    expect(burstCount(1)).toBe(3);
+  });
+  it('항상 2 또는 3(범위 밖·NaN 안전화)', () => {
+    for (const v of [-1, 2, NaN, Infinity]) {
+      expect([2, 3]).toContain(burstCount(v));
+    }
+  });
+});
+
+describe('circlesArea', () => {
+  it('π·r² 합', () => {
+    expect(circlesArea([{ x: 0, y: 0, r: 10 }])).toBeCloseTo(Math.PI * 100);
+    expect(circlesArea([{ x: 0, y: 0, r: 2 }, { x: 5, y: 5, r: 3 }])).toBeCloseTo(
+      Math.PI * (4 + 9),
+    );
+  });
+  it('빈 목록·비유한·0 반지름은 0 기여', () => {
+    expect(circlesArea([])).toBe(0);
+    expect(circlesArea([{ x: 0, y: 0, r: 0 }, { x: 0, y: 0, r: NaN }])).toBe(0);
+  });
+});
+
+describe('areaFilled (SOO-1049 후속 2/3 채움 중단)', () => {
+  it('면적이 임계 이상이면 true', () => {
+    // 필드 100x100 = 10000, 임계 0.5 → 5000. r≈40 → π·1600≈5026 ≥ 5000
+    expect(areaFilled([{ x: 50, y: 50, r: 40 }], 100, 100, 0.5)).toBe(true);
+  });
+  it('면적이 임계 미만이면 false', () => {
+    expect(areaFilled([{ x: 50, y: 50, r: 10 }], 100, 100, 0.5)).toBe(false);
+  });
+  it('FILL_STOP_RATIO 는 2/3', () => {
+    expect(FILL_STOP_RATIO).toBeCloseTo(2 / 3);
   });
 });
 
