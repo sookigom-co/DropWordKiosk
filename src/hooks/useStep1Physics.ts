@@ -24,6 +24,7 @@ import {
   randomTargetPx,
   referenceBubblePx,
   swayForce,
+  topSpawnPoint,
   type Circle,
   type FxSettings,
 } from '../lib/fx';
@@ -61,6 +62,12 @@ const SETTLE_HOLD_MS = 450;
  * 위를 향해 버블이 떠오른다(가속도 = g·scale·(factor−1), 질량 무관).
  */
 const BUOYANCY_FACTOR = 1.7;
+/**
+ * 하강 버블 중력 배율(SOO-1059) — 상단에서 생성돼 내려오는 버블에 싣는 부력 배율.
+ * 1 미만이라 순힘이 아래를 향해(가속도 = g·scale·(1−factor) > 0, 아래로) 버블이 내려온다.
+ * 단, 감쇠(<1 이지만 0 아님)로 raw 중력보다 느긋하게 떨어져 "기포/풍선" 질감을 유지한다.
+ */
+const DESCEND_FACTOR = 0.5;
 /** 좌우 흔들림 세기(가속도 진폭) — 풍선/기포 느낌의 자연스러운 사행. */
 const SWAY_AMPLITUDE = 0.0006;
 /** 좌우 흔들림 각속도(rad/s). */
@@ -83,6 +90,11 @@ interface PurpleSim {
   curR: number;
   /** 좌우 흔들림 위상 시드(버블마다 다르게 사행). */
   phase: number;
+  /**
+   * 이 버블에 실을 부력 배율(SOO-1059). 하단 스폰=BUOYANCY_FACTOR(>1, 상승),
+   * 상단 스폰=DESCEND_FACTOR(<1, 감쇠 하강). 매 프레임 buoyancyForce 에 그대로 전달.
+   */
+  buoyFactor: number;
 }
 
 export interface Step1PhysicsApi {
@@ -175,6 +187,9 @@ export function useStep1Physics(
 
     const purpleSims: PurpleSim[] = [];
     let purpleId = 0;
+    // 스폰 이원화 카운터(SOO-1059) — 성공 스폰마다 +1, 짝수=하단(상승)·홀수=상단(하강)으로
+    // 교대해 장시간 구동 시 대략 절반씩 유지. 실패(빈 자리 없음) 스폰은 세지 않아 균형 보존.
+    let spawnParity = 0;
     let startTs = -1;
     let lastTs = -1;
     let lastSpawn = -Infinity;
@@ -202,12 +217,14 @@ export function useStep1Physics(
     };
 
     /**
-     * 하단(바닥선 근처)에 보라 버블 하나 스폰 시도(SOO-1057).
-     * 다른 버블과 겹치지 않는 바닥 자리를 SPAWN_TRIES 안에 찾으면 동적 버블을 만들어
-     * true, 못 찾으면 생성하지 않고 false. (false 여도 기존 버블은 유지 — 영속.)
-     * 단어는 스폰 겹침 판정에서 제외 — 버블이 단어 사이/아래에서 솟아 단어를 밀어 올린다.
+     * 보라 버블 하나 스폰 시도(SOO-1057 → SOO-1059 이원화).
+     * `rise=true` 면 하단(바닥선 근처)에서 생성돼 부력으로 상승, `rise=false` 면 상단
+     * (천장선 근처)에서 생성돼 감쇠 중력으로 하강한다. 어느 쪽이든 다른 버블과 겹치지 않는
+     * 자리를 SPAWN_TRIES 안에 찾으면 동적 버블을 만들어 true, 못 찾으면 생성하지 않고 false.
+     * (false 여도 기존 버블은 유지 — 영속.) 단어는 스폰 겹침 판정에서 제외 — 버블이 단어를
+     * 밀어 올린다(상승)/눌러 내린다(하강).
      */
-    const trySpawnPurple = (nowMs: number): boolean => {
+    const trySpawnPurple = (nowMs: number, rise: boolean): boolean => {
       const s = settingsRef.current;
       // 비중첩 기준 = 기존 버블들만(현재 반지름 + 여유). 단어는 밀어 올림 대상이라 제외.
       const bubbleOccupied: Circle[] = purpleSims.map((p) => ({
@@ -217,10 +234,15 @@ export function useStep1Physics(
       }));
       const candidates: { x: number; y: number }[] = [];
       for (let k = 0; k < SPAWN_TRIES; k++) {
-        candidates.push(bottomSpawnPoint(width, height, Math.random(), PURPLE_START_R));
+        const rx = Math.random();
+        candidates.push(
+          rise
+            ? bottomSpawnPoint(width, height, rx, PURPLE_START_R)
+            : topSpawnPoint(width, height, rx, PURPLE_START_R),
+        );
       }
       const spot = firstFreeSpawn(candidates, PURPLE_START_R, bubbleOccupied, SPAWN_PAD);
-      if (!spot) return false; // 바닥에 빈 자리 없음 → 이번 스폰 건너뜀.
+      if (!spot) return false; // 스폰 밴드에 빈 자리 없음 → 이번 스폰 건너뜀.
       const targetR = randomTargetPx(bubblePx, s.maxSizeRatio, Math.random()) / 2;
       const body = makeBubbleBody(spot.x, spot.y, PURPLE_START_R);
       addBody(world, body);
@@ -233,6 +255,7 @@ export function useStep1Physics(
         growDurMs: s.growDurationSec * 1000,
         curR: PURPLE_START_R,
         phase: Math.random() * Math.PI * 2,
+        buoyFactor: rise ? BUOYANCY_FACTOR : DESCEND_FACTOR,
       });
       setPurples((ps) => [...ps, { id, color: purpleColor(s.hue, { alpha: 0.5 }) }]);
       return true;
@@ -261,7 +284,8 @@ export function useStep1Physics(
       const gScale = world.engine.gravity.scale;
       const gY = world.engine.gravity.y;
       for (const p of purpleSims) {
-        p.body.force.y += buoyancyForce(p.body.mass, gY, gScale, BUOYANCY_FACTOR);
+        // 하단 스폰=상승(factor>1), 상단 스폰=하강(factor<1) — 버블별 배율(SOO-1059).
+        p.body.force.y += buoyancyForce(p.body.mass, gY, gScale, p.buoyFactor);
         const phase = (nowMs / 1000) * SWAY_FREQ + p.phase;
         p.body.force.x += swayForce(p.body.mass, phase, SWAY_AMPLITUDE);
       }
@@ -298,8 +322,11 @@ export function useStep1Physics(
           if (purpleSims.length >= MAX_PURPLE) break;
           // 화면이 가득 차면 신규 스폰 중단(이미 생성된 버블은 유지 — 영속).
           if (areaFilled(collectOccupied(), width, height, FILL_STOP_RATIO)) break;
-          if (trySpawnPurple(nowMs)) spawnedAny = true;
-          else break; // 바닥에 빈 자리 없음 → 이번 버스트 종료.
+          // 교대 이원화(SOO-1059): 짝수=하단(상승)·홀수=상단(하강). 성공 시에만 parity 전진.
+          if (trySpawnPurple(nowMs, spawnParity % 2 === 0)) {
+            spawnParity++;
+            spawnedAny = true;
+          } else break; // 스폰 밴드에 빈 자리 없음 → 이번 버스트 종료.
         }
         if (spawnedAny) lastSpawn = nowMs;
       }
