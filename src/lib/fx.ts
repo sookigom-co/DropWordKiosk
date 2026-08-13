@@ -243,6 +243,64 @@ export function spawnBetweenBodies(
   return { x: (a.x + b.x) / 2 + jx, y: (a.y + b.y) / 2 + jy };
 }
 
+/**
+ * 보라 버블 하단 스폰 지점(SOO-1057).
+ * 스테이지 바닥선 근처(하단)에서 x 는 마진 안 좌우 랜덤으로 고르고, y 는 바닥
+ * 바로 위(반지름만큼 안쪽)에 둔다 → 버블이 "아래에서" 생성돼 부력으로 떠오른다.
+ * 기존 "빈 공간 3티어 스폰"(pickSpawnPointBand/spawnBetweenBodies)을 대체한다.
+ * rndX 는 0~1 난수(테스트 시 주입). 결과 x 는 항상 마진 안.
+ */
+export function bottomSpawnPoint(
+  width: number,
+  height: number,
+  rndX: number,
+  startR: number,
+  margin = 40,
+): { x: number; y: number } {
+  const w = Math.max(0, width);
+  const h = Math.max(0, height);
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+  const mx = Math.min(margin, w / 2);
+  const x = mx + clamp01(rndX) * Math.max(0, w - mx * 2);
+  // 바닥선(y=height) 바로 위 — 반지름만큼 안쪽에 두어 바닥을 뚫지 않게.
+  const r = Math.max(0, Number.isFinite(startR) ? startR : 0);
+  const y = Math.max(0, h - r - 1);
+  return { x, y };
+}
+
+/**
+ * 부력(위로 뜨는 힘, SOO-1057) — matter 가 매 스텝 body.force.y 에 더하는 중력
+ * (mass·gravityY·gravityScale)을 factor 배로 되갚아 상쇄·역전한다.
+ * 반환값(음수)을 body.force.y 에 더한 뒤 matter 가 중력을 더하면 최종
+ * force.y = mass·g·scale·(1 − factor) → factor>1 이면 위(matter 는 위가 음수 y)로
+ * 순힘이 생겨 떠오른다. 가속도 = force/mass = g·scale·(1−factor) 로 질량(크기)과
+ * 무관 → 크고 작은 버블이 같은 속도로 떠오른다.
+ */
+export function buoyancyForce(
+  mass: number,
+  gravityY: number,
+  gravityScale: number,
+  factor: number,
+): number {
+  const m = Number.isFinite(mass) ? mass : 0;
+  const g = Number.isFinite(gravityY) ? gravityY : 0;
+  const s = Number.isFinite(gravityScale) ? gravityScale : 0;
+  const f = Number.isFinite(factor) ? factor : 0;
+  return -m * g * s * f;
+}
+
+/**
+ * 좌우 흔들림 힘(풍선/기포 느낌, SOO-1057) — 위상(phase)에 따른 사인 힘.
+ * mass 에 비례시켜 흔들림 가속도(=force/mass=amplitude·sin)가 크기와 무관하게
+ * 균일하게 보이도록 한다. phase 는 시간·시드 기반(런타임 주입), amplitude 는 세기.
+ */
+export function swayForce(mass: number, phase: number, amplitude: number): number {
+  const m = Number.isFinite(mass) ? mass : 0;
+  const a = Number.isFinite(amplitude) ? amplitude : 0;
+  const p = Number.isFinite(phase) ? phase : 0;
+  return m * a * Math.sin(p);
+}
+
 /** 원(중심 x·y, 반지름 r) — 겹침 판정·스폰 배치 공용 표현. */
 export interface Circle {
   readonly x: number;

@@ -5,6 +5,8 @@ import {
   FX_RANGES,
   areaFilled,
   bodiesSettled,
+  bottomSpawnPoint,
+  buoyancyForce,
   burstCount,
   circlesArea,
   circlesOverlap,
@@ -25,6 +27,7 @@ import {
   REFERENCE_BUBBLE_CAP_PX,
   referenceBubblePx,
   spawnBetweenBodies,
+  swayForce,
   type Circle,
   type FxSettings,
 } from '../lib/fx';
@@ -182,6 +185,67 @@ describe('pickSpawnPointBand (SOO-1049 후속 — 스폰 위치 우선순위 밴
     expect(p.x).toBeGreaterThanOrEqual(40);
     expect(p.x).toBeLessThanOrEqual(660);
     expect(p.y).toBeCloseTo(450); // lo=0.9 로 고정(hi=max(lo,0.1)=0.9), rndY=0
+  });
+});
+
+describe('bottomSpawnPoint (SOO-1057 하단 스폰)', () => {
+  it('x 는 항상 마진 안', () => {
+    for (const rx of [0, 0.5, 1, NaN, -1, 2]) {
+      const p = bottomSpawnPoint(700, 500, rx, 6, 40);
+      expect(p.x).toBeGreaterThanOrEqual(40);
+      expect(p.x).toBeLessThanOrEqual(660);
+    }
+  });
+  it('y 는 바닥선(height) 바로 위 — 반지름만큼 안쪽', () => {
+    // height=500, startR=6 → y = 500 - 6 - 1 = 493
+    expect(bottomSpawnPoint(700, 500, 0.5, 6).y).toBeCloseTo(493);
+  });
+  it('rndX 로 좌우가 결정된다(0=좌, 1=우)', () => {
+    expect(bottomSpawnPoint(700, 500, 0, 6, 40).x).toBeCloseTo(40);
+    expect(bottomSpawnPoint(700, 500, 1, 6, 40).x).toBeCloseTo(660);
+  });
+  it('음수·비유한 입력도 안전(y>=0)', () => {
+    expect(bottomSpawnPoint(-10, -10, 0.5, 6).y).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('buoyancyForce (SOO-1057 부력)', () => {
+  it('factor>1 이면 위로(음수) 순힘 — matter 는 위가 음수 y', () => {
+    // 중력 추가분 = mass*g*scale = 1*1*0.001 = 0.001, factor=1.7 → -0.0017
+    expect(buoyancyForce(1, 1, 0.001, 1.7)).toBeCloseTo(-0.0017);
+  });
+  it('factor=1 이면 중력과 정확히 상쇄되는 크기(부호는 위)', () => {
+    // 반환값(-0.001) + 중력(+0.001) = 0 → 순힘 0(무중력).
+    expect(buoyancyForce(1, 1, 0.001, 1)).toBeCloseTo(-0.001);
+  });
+  it('질량에 비례(가속도는 질량 무관해짐)', () => {
+    expect(buoyancyForce(2, 1, 0.001, 1.7)).toBeCloseTo(2 * buoyancyForce(1, 1, 0.001, 1.7));
+  });
+  it('비유한 입력은 0 으로 안전화', () => {
+    expect(buoyancyForce(NaN, 1, 0.001, 1.7)).toBe(-0);
+    expect(buoyancyForce(1, NaN, 0.001, 1.7)).toBe(-0);
+    expect(buoyancyForce(1, 1, 0.001, NaN)).toBe(-0);
+  });
+});
+
+describe('swayForce (SOO-1057 좌우 흔들림)', () => {
+  it('sin 위상에 따라 좌우로 진동', () => {
+    expect(swayForce(1, 0, 0.0006)).toBeCloseTo(0);
+    expect(swayForce(1, Math.PI / 2, 0.0006)).toBeCloseTo(0.0006);
+    expect(swayForce(1, -Math.PI / 2, 0.0006)).toBeCloseTo(-0.0006);
+  });
+  it('질량에 비례(가속도 진폭은 질량 무관)', () => {
+    expect(swayForce(3, Math.PI / 2, 0.0006)).toBeCloseTo(3 * 0.0006);
+  });
+  it('진폭 안에서만 움직인다(|force| <= mass*amplitude)', () => {
+    for (const ph of [0.3, 1.1, 2.7, 5.9]) {
+      expect(Math.abs(swayForce(1, ph, 0.0006))).toBeLessThanOrEqual(0.0006 + 1e-12);
+    }
+  });
+  it('비유한 입력은 0 으로 안전화', () => {
+    expect(swayForce(NaN, 1, 0.0006)).toBe(0);
+    expect(swayForce(1, NaN, 0.0006)).toBe(0);
+    expect(swayForce(1, 1, NaN)).toBe(0);
   });
 });
 
