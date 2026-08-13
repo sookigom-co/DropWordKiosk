@@ -16,6 +16,7 @@ import {
   maxCirclePx,
   maxGrowRadius,
   pickSpawnPoint,
+  pickSpawnPointBand,
   pickSpawnPointFull,
   purpleColor,
   randomTargetPx,
@@ -160,6 +161,23 @@ describe('pickSpawnPointFull (SOO-1049 후속 가득 채움)', () => {
   it('전체 필드(상단~하단)를 커버 — y 가 마진에서 height-마진까지', () => {
     expect(pickSpawnPointFull(700, 500, 0.5, 0, 40).y).toBeCloseTo(40);
     expect(pickSpawnPointFull(700, 500, 0.5, 1, 40).y).toBeCloseTo(460);
+  });
+});
+
+describe('pickSpawnPointBand (SOO-1049 후속 — 스폰 위치 우선순위 밴드)', () => {
+  it('y 가 밴드(yLo~yHi·높이 대비) 안에 매핑된다', () => {
+    // 하단 밴드 [0.5, 0.92], height=500 → y ∈ [250, 460]
+    expect(pickSpawnPointBand(700, 500, 0.5, 0, 0.5, 0.92).y).toBeCloseTo(250);
+    expect(pickSpawnPointBand(700, 500, 0.5, 1, 0.5, 0.92).y).toBeCloseTo(460);
+    // 상단 밴드 [0.06, 0.5] → y ∈ [30, 250]
+    expect(pickSpawnPointBand(700, 500, 0.5, 0, 0.06, 0.5).y).toBeCloseTo(30);
+    expect(pickSpawnPointBand(700, 500, 0.5, 1, 0.06, 0.5).y).toBeCloseTo(250);
+  });
+  it('x 는 마진 안, NaN·역전 밴드도 안전하게 처리', () => {
+    const p = pickSpawnPointBand(700, 500, NaN, NaN, 0.9, 0.1, 40); // lo>hi → hi=lo 로 보정
+    expect(p.x).toBeGreaterThanOrEqual(40);
+    expect(p.x).toBeLessThanOrEqual(660);
+    expect(p.y).toBeCloseTo(450); // lo=0.9 로 고정(hi=max(lo,0.1)=0.9), rndY=0
   });
 });
 
