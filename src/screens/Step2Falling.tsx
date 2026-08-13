@@ -11,8 +11,8 @@ interface Props {
   onNext: () => void;
 }
 
-/** 사각형(낱말카드) 크기 배율 — 보더 요청(SOO-1054) 1.5배. */
-const CARD_SCALE = 1.5;
+/** 사각형(낱말카드) 크기 배율 — SOO-1054 1.5배 후 보더 후속 요청으로 80% 축소(1.5×0.8=1.2). */
+const CARD_SCALE = 1.2;
 const CARD_H = Math.round(52 * CARD_SCALE);
 /** 주황 원 크기 배율 — 보더 요청(SOO-1054 후속) 0.5배 축소. */
 const CIRCLE_SCALE = 0.5;
@@ -25,7 +25,7 @@ const PARTICLE_COUNT = 12;
 const INIT_ANGLE_RANGE = 0.12;
 const INIT_ANGULAR_VELOCITY = 0.012;
 
-/** 텍스트 길이로 카드 폭 추정(물리 바디와 DOM 카드 폭을 일치시킴). 1.5배 확대 반영. */
+/** 텍스트 길이로 카드 폭 추정(물리 바디와 DOM 카드 폭을 일치시킴). CARD_SCALE 반영. */
 function cardWidth(text: string): number {
   return Math.round((text.length * 26 + 36) * CARD_SCALE);
 }
@@ -175,12 +175,12 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
                 height: CARD_H,
                 top: 0,
                 left: 0,
-                // 물리 바디(1.5배)와 DOM 박스를 정확히 일치시키고 글자도 함께 확대
+                // 물리 바디(CARD_SCALE)와 DOM 박스를 정확히 일치시키고 글자도 함께 비례 축소
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '0 18px',
-                fontSize: 'clamp(27px, 4.2vw, 39px)',
+                fontSize: 'clamp(22px, 3.36vw, 31px)',
               }}
               ref={(el) => {
                 cardsRef.current[idx].el = el;
