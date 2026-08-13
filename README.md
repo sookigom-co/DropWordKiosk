@@ -4,7 +4,7 @@
 
 - 대상 구동 환경: **라즈베리파이 Chromium 키오스크**(터치, **완전 오프라인**)
 - 스택: **React + TypeScript + Vite**
-- 프린터: **SEWOO SMK3S**(80mm / 640dot) — 로컬 인쇄 에이전트 연동
+- 프린터: **2S**(54mm / 432dot @203dpi) 실기기 기준 — 인쇄 폭은 `VITE_PRINT_WIDTH` 로 재정의 가능(SMK3S 80mm=576dot 등) — 로컬 인쇄 에이전트 연동
 - 출처 문서: SOO-984 분석 문서 v7 §2(스토리보드 17화면), SOO-992 계획 문서 §3(API 계약)
 - 관련 이슈: [SOO-993](/SOO/issues/SOO-993) (프론트), 부모 [SOO-992](/SOO/issues/SOO-992)
 
@@ -82,7 +82,7 @@ STEP2 형용사 선택(물리 낙하) → STEP3 동사 선택(정렬 낙하) →
 `?agent=` > `VITE_PRINTER_BASE` > same-origin 기본값.
 
 - `GET  /v1/printer/status` — 인쇄 전 상태 확인. 상태 코드(READY/NO_PAPER/COVER_OPEN/OFFLINE 등)를 반환.
-- `POST /v1/print` — `application/json`, 본문 `{ "imagePngBase64": "<PNG base64>", "cut": true, "meta"?: { modifier, target, action } }`. 협정문 PNG(640px 흑백)를 순수 base64 로 전송한다(계약 v1, SOO-997).
+- `POST /v1/print` — `application/json`, 본문 `{ "imagePngBase64": "<PNG base64>", "cut": true, "meta"?: { modifier, target, action } }`. 협정문 PNG(기본 432px 흑백, `VITE_PRINT_WIDTH` 재정의 가능)를 순수 base64 로 전송한다(계약 v1, SOO-997).
 
 응답 파싱은 방어적으로 작성(다양한 필드명 status/state/code, ok/success 허용)했다 — 구현: `src/lib/printClient.ts`.
 

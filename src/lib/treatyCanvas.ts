@@ -1,6 +1,7 @@
 // 협정문 캔버스 렌더링 → PNG(흑백).
-// 폭 576px(SMK3S 80mm 헤드의 실제 인쇄 가능 폭 = 72mm / 576dot) 고정, 높이는 내용에 따라 가변.
-//   - 과거 640dot 은 헤드 밖으로 오른쪽 ~64dot(≈8mm)이 잘려 나가는 문제가 있었다(SOO-1065).
+// 폭 432px(2S 프린터 54mm / 2.12" 헤드의 인쇄 가능 폭 = 432dot @203dpi) 고정, 높이는 내용에 따라 가변.
+//   - 과거 640dot → 576dot 으로, 다시 실기기(2S, 54mm)에 맞춰 432dot 으로 조정(SOO-1065).
+//     헤드 폭보다 넓은 래스터는 오른쪽이 헤드 밖으로 잘려 나간다.
 //   - 실기기 인쇄 가능 폭이 다를 경우 재빌드 없이 VITE_PRINT_WIDTH 로 재정의한다.
 // 로고는 디자인 자산 미확보 → 텍스트 플레이스홀더로 렌더(README 교체 지점 참조).
 
@@ -12,8 +13,8 @@ import {
   formatTreatyFooterDate,
 } from '../data/treaty';
 
-/** 인쇄 PNG 기본 폭(dot). SMK3S(80mm) 헤드의 실제 인쇄 가능 폭 = 576dot(72mm). */
-export const DEFAULT_PRINT_WIDTH = 576;
+/** 인쇄 PNG 기본 폭(dot). 2S 프린터(54mm / 2.12") 헤드의 인쇄 가능 폭 = 432dot @203dpi. */
+export const DEFAULT_PRINT_WIDTH = 432;
 
 /** VITE_PRINT_WIDTH(빌드타임, 양의 정수) 재정의를 파싱한다. 미지정·부정값이면 기본값. */
 export function resolvePrintWidth(raw: string | undefined): number {
@@ -25,8 +26,8 @@ export function resolvePrintWidth(raw: string | undefined): number {
 export const PRINT_WIDTH = resolvePrintWidth(import.meta.env.VITE_PRINT_WIDTH);
 
 const FONT_FAMILY = "'Gowun Dodum', sans-serif";
-// 폭 축소(640→576)로 좌우 여백을 48→40 으로 줄여 콘텐츠 폭(496px)의 가독성을 유지한다.
-const MARGIN_X = 40;
+// 폭 축소(576→432)로 좌우 여백을 40→32 로 줄여 콘텐츠 폭(368px)을 최대한 확보해 가독성을 유지한다.
+const MARGIN_X = 32;
 export const CONTENT_WIDTH = PRINT_WIDTH - MARGIN_X * 2;
 
 interface Line {
