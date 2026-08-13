@@ -57,6 +57,10 @@ export function createStep1World(width: number, height: number, gravityY = 1): S
   const engine = Engine.create();
   engine.gravity.x = 0;
   engine.gravity.y = gravityY;
+  // 비중첩 강화(SOO-1063): 위치/속도 솔버 반복 횟수를 기본(6/4)보다 높여 적재 정착 시
+  // 강체 간 잔여 관통(겹침)을 줄인다. 라즈베리파이에서도 강체 수가 적어 부하는 미미.
+  engine.positionIterations = 10;
+  engine.velocityIterations = 8;
 
   const opts: Matter.IChamferableBodyDefinition = { isStatic: true, friction: 0.6 };
   const floor = Bodies.rectangle(width / 2, height + WALL / 2, width + WALL * 2, WALL, opts);
