@@ -4,6 +4,7 @@ import { ScreenFrame } from '../components/ScreenFrame';
 import { NextButton } from '../components/NextButton';
 import { ADJECTIVES } from '../data/words';
 import { purpleScaleRadius, referenceBubblePx, interleavedReleaseSlots } from '../lib/fx';
+import { WORD_BOX_SCALE } from '../lib/physics';
 
 interface Props {
   selectedId: string | null;
@@ -11,8 +12,12 @@ interface Props {
   onNext: () => void;
 }
 
-/** 사각형(낱말카드) 크기 배율 — SOO-1054 1.5배 후 보더 후속 요청으로 80% 축소(1.5×0.8=1.2). */
-const CARD_SCALE = 1.2;
+/**
+ * 낱말카드 크기 배율 — SOO-1054 1.5배 후 보더 후속 요청으로 80% 축소(1.5×0.8=1.2).
+ * SOO-1061: 보더 요청으로 "현재 대비 1.5배" 재확대 → 현재 배율(1.2)에 공용
+ * `WORD_BOX_SCALE`(1.5)을 곱해 유효 배율 1.8. 폭·높이·폰트·패딩·물리 바디 모두 동일 반영.
+ */
+const CARD_SCALE = 1.2 * WORD_BOX_SCALE;
 const CARD_H = Math.round(52 * CARD_SCALE);
 /** 주황 원 크기 배율 — 보더 요청(SOO-1054 후속) 0.5배 축소. */
 const CIRCLE_SCALE = 0.5;
@@ -202,8 +207,9 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '0 18px',
-                fontSize: 'clamp(22px, 3.36vw, 31px)',
+                // 패딩·폰트도 물리/시각 배율과 동일하게 1.5배(SOO-1061): 18→27px, 폰트 clamp ×1.5.
+                padding: '0 27px',
+                fontSize: 'clamp(33px, 5.04vw, 46px)',
               }}
               ref={(el) => {
                 cardsRef.current[idx].el = el;
