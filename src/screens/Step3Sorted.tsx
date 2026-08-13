@@ -3,7 +3,14 @@ import Matter from 'matter-js';
 import { ScreenFrame } from '../components/ScreenFrame';
 import { NextButton } from '../components/NextButton';
 import { VERBS } from '../data/words';
-import { createStep1World, makeBoxBody, addBody, stepEngine, bodyCenter } from '../lib/physics';
+import {
+  createStep1World,
+  makeBoxBody,
+  addBody,
+  stepEngine,
+  bodyCenter,
+  WORD_BOX_SCALE,
+} from '../lib/physics';
 import { interleavedReleaseSlots } from '../lib/fx';
 
 interface Props {
@@ -12,8 +19,12 @@ interface Props {
   onNext: () => void;
 }
 
-/** 낱말 상자 높이(px). */
-const CARD_H = 56;
+/**
+ * 낱말 상자 높이(px). SOO-1061: 보더 요청으로 "현재 대비 1.5배" 확대 →
+ * 공용 `WORD_BOX_SCALE`(1.5) 반영(56→84). 폭(cardWidth)·폰트·패딩·물리 바디도 동일 배율.
+ * 장식 보라 사각형(SQUARE_*)은 낱말 상자가 아니므로 대상 밖 — 크기 유지.
+ */
+const CARD_H = Math.round(56 * WORD_BOX_SCALE);
 /**
  * 장식용 보라색 사각형 개수(SOO-1056 보더 재요청 `8b1b6614`).
  * Step 2 의 주황(노란) 원과 같은 역할 — 글자 없고 아무 기능 없는 순수 장식 파티클.
@@ -35,9 +46,9 @@ function slotY(slot: number): number {
   return RELEASE_BASE - slot * RELEASE_STEP - Math.random() * RELEASE_JITTER;
 }
 
-/** 텍스트 길이로 상자 폭 추정(물리 바디와 DOM 박스 폭을 일치시킴). */
+/** 텍스트 길이로 상자 폭 추정(물리 바디와 DOM 박스 폭을 일치시킴). WORD_BOX_SCALE(1.5) 반영. */
 function cardWidth(text: string): number {
-  return Math.round(text.length * 26 + 44);
+  return Math.round((text.length * 26 + 44) * WORD_BOX_SCALE);
 }
 
 interface CardRef {
@@ -179,8 +190,9 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '0 18px',
-                fontSize: 'clamp(20px, 3vw, 28px)',
+                // 패딩·폰트도 물리/시각 배율과 동일하게 1.5배(SOO-1061): 18→27px, 폰트 clamp ×1.5.
+                padding: '0 27px',
+                fontSize: 'clamp(30px, 4.5vw, 42px)',
               }}
               ref={(el) => {
                 cardsRef.current[idx].el = el;
