@@ -486,6 +486,77 @@ export function interleavedReleaseSlots(cardCount: number, circleCount: number):
   return slots.sort((a, b) => a - b);
 }
 
+/**
+ * 균형 적재용 결정적 x-레인 중심 좌표(SOO-1063).
+ * 폭을 laneCount 개의 균등한 세로 레인으로 나눠 각 레인의 중심 x(px)를 반환한다.
+ * 좌우 대칭(가장 바깥 레인은 마진 안쪽 끝, 가운데 레인은 화면 중앙)이라
+ * 레인에 순서대로 떨어뜨리면 좌우로 치우치지 않고 고르게 쌓인다.
+ * laneCount<=1 이면 화면 중앙 한 곳만 반환.
+ */
+export function laneCenters(width: number, laneCount: number, margin = 40): number[] {
+  const w = Math.max(0, width);
+  const n = Math.max(1, Math.floor(Number.isFinite(laneCount) ? laneCount : 1));
+  const mx = Math.min(margin, w / 2);
+  if (n === 1) return [w / 2];
+  const usable = Math.max(0, w - mx * 2);
+  const step = usable / (n - 1);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(mx + step * i);
+  return out;
+}
+
+/**
+ * 레인 채움 순서 — 가운데 레인부터 바깥으로 좌우 교대(SOO-1063).
+ * 예) 5 → [2,3,1,4,0], 4 → [1,2,0,3]. 이 순서로 라운드로빈 배정하면 낙하가
+ * 진행되는 동안 좌우가 번갈아 채워져 한쪽 쏠림이 생기지 않고, 가운데가 살짝 먼저·많이
+ * 채워져 자연스러운 피라미드형 무더기가 된다. 랜덤을 쓰지 않는 결정적 순서.
+ */
+export function centerOutLaneOrder(laneCount: number): number[] {
+  const n = Math.max(0, Math.floor(Number.isFinite(laneCount) ? laneCount : 0));
+  if (n <= 0) return [];
+  const order: number[] = [];
+  const mid = Math.floor((n - 1) / 2);
+  order.push(mid);
+  for (let d = 1; order.length < n; d++) {
+    const r = mid + d;
+    const l = mid - d;
+    if (r < n) order.push(r);
+    if (l >= 0) order.push(l);
+  }
+  return order;
+}
+
+/**
+ * 폭·아이템 폭 기준 권장 레인 수(SOO-1063).
+ * 아이템이 대략 나란히 설 수 있는 레인 수를 [min, max] 로 클램프해 반환한다.
+ */
+export function laneCountForWidth(
+  width: number,
+  itemW: number,
+  margin = 40,
+  min = 3,
+  max = 7,
+): number {
+  const usable = Math.max(1, Math.max(0, width) - margin * 2);
+  const iw = Math.max(1, Number.isFinite(itemW) ? itemW : 1);
+  const n = Math.floor(usable / iw);
+  return Math.min(max, Math.max(min, n));
+}
+
+/**
+ * slot(방출 순서 인덱스) → 결정적 균형 x 중심(px)(SOO-1063).
+ * 레인을 가운데-바깥 순서(centerOutLaneOrder)로 라운드로빈 배정해, 카드·장식이
+ * 낙하하는 동안 좌우가 고르게 채워지도록 한다. 같은 레인에 배정된 아이템은 같은 x 로
+ * 떨어져 세로로 차곡차곡 쌓인다. 랜덤 없이 slot 만으로 결정 → 반복 실행에도 동일 배치.
+ */
+export function balancedLaneX(slot: number, width: number, laneCount: number, margin = 40): number {
+  const centers = laneCenters(width, laneCount, margin);
+  const order = centerOutLaneOrder(centers.length);
+  if (order.length === 0) return Math.max(0, width) / 2;
+  const s = Number.isFinite(slot) ? Math.max(0, Math.floor(slot)) : 0;
+  return centers[order[s % order.length]];
+}
+
 /** 보라색 HSL 문자열. alpha < 1 이면 반투명. */
 export function purpleColor(
   hue: number,

@@ -4,8 +4,12 @@ import {
   FILL_STOP_RATIO,
   FX_RANGES,
   areaFilled,
+  balancedLaneX,
   bodiesSettled,
   bottomSpawnPoint,
+  centerOutLaneOrder,
+  laneCenters,
+  laneCountForWidth,
   buoyancyForce,
   burstCount,
   circlesArea,
@@ -521,6 +525,60 @@ describe('interleavedReleaseSlots (SOO-1054 후속 — 카드·원 균등 교차
     const all = new Set([...circleSet, ...cardSlots]);
     expect(all.size).toBe(total);
     for (let s = 0; s < total; s++) expect(all.has(s)).toBe(true);
+  });
+});
+
+describe('결정적 균형 적재 레인 (SOO-1063)', () => {
+  it('laneCenters — 좌우 대칭·균등 간격, 중앙 레인은 화면 중앙', () => {
+    const W = 768;
+    const centers = laneCenters(W, 5, 40);
+    expect(centers).toHaveLength(5);
+    // 균등 간격
+    for (let i = 1; i < centers.length; i++) {
+      expect(centers[i] - centers[i - 1]).toBeCloseTo(centers[1] - centers[0]);
+    }
+    // 좌우 대칭(각 레인 x + 대칭 레인 x = W)
+    for (let i = 0; i < centers.length; i++) {
+      expect(centers[i] + centers[centers.length - 1 - i]).toBeCloseTo(W);
+    }
+    // 홀수 레인 → 가운데는 화면 중앙
+    expect(centers[2]).toBeCloseTo(W / 2);
+  });
+
+  it('laneCenters — laneCount<=1 이면 화면 중앙 한 곳', () => {
+    expect(laneCenters(768, 1)).toEqual([384]);
+    expect(laneCenters(768, 0)).toEqual([384]);
+  });
+
+  it('centerOutLaneOrder — 가운데부터 바깥으로, 전 레인 1회씩', () => {
+    expect(centerOutLaneOrder(5)).toEqual([2, 3, 1, 4, 0]);
+    expect(centerOutLaneOrder(4)).toEqual([1, 2, 0, 3]);
+    // 모든 레인이 정확히 한 번씩
+    const o = centerOutLaneOrder(7);
+    expect(new Set(o).size).toBe(7);
+    expect(o[0]).toBe(3); // 가운데 먼저
+  });
+
+  it('laneCountForWidth — [min,max] 클램프', () => {
+    expect(laneCountForWidth(768, 134)).toBe(5);
+    expect(laneCountForWidth(768, 9999)).toBe(3); // 너무 넓으면 min
+    expect(laneCountForWidth(9999, 50)).toBe(7); // 너무 많으면 max
+  });
+
+  it('balancedLaneX — 결정적(같은 slot → 같은 x), 좌우 균형', () => {
+    const W = 768;
+    const n = 5;
+    // 결정성: 반복 호출해도 동일
+    expect(balancedLaneX(7, W, n)).toBe(balancedLaneX(7, W, n));
+    // 연속 슬롯을 배정하면 좌우가 고르게 채워진다(한쪽 쏠림 없음).
+    const N = 30;
+    const xs: number[] = [];
+    for (let s = 0; s < N; s++) xs.push(balancedLaneX(s, W, n));
+    const left = xs.filter((x) => x < W / 2).length;
+    const right = xs.filter((x) => x > W / 2).length;
+    expect(Math.abs(left - right)).toBeLessThanOrEqual(1);
+    // 사용된 레인 수 = 레인 전체(모든 레인이 채워짐)
+    expect(new Set(xs.map((x) => Math.round(x))).size).toBe(n);
   });
 });
 

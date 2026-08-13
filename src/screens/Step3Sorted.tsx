@@ -11,7 +11,7 @@ import {
   bodyCenter,
   WORD_BOX_SCALE,
 } from '../lib/physics';
-import { interleavedReleaseSlots } from '../lib/fx';
+import { interleavedReleaseSlots, balancedLaneX, laneCountForWidth } from '../lib/fx';
 
 interface Props {
   selectedId: string | null;
@@ -105,9 +105,17 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     }
     const squareSlots = [...squareSlotSet].sort((a, b) => a - b);
 
+    // 결정적 균형 적재(SOO-1063): 화면 폭을 레인으로 나눠 카드·장식을 slot(방출 순서) 기준으로
+    // 가운데-바깥 라운드로빈 배정한다. 랜덤 x 를 제거해 좌우 쏠림을 없애고, 카드·사각형이 공통
+    // 슬롯 공간을 공유하므로 전체 낙하 세트가 한 덩어리로 좌우 균형을 이룬다.
+    const repCardW = cardWidth(
+      '가'.repeat(Math.max(1, Math.round(VERBS.reduce((s, v) => s + v.text.length, 0) / VERBS.length))),
+    );
+    const laneCount = laneCountForWidth(W, repCardW);
+
     const cards: CardRef[] = VERBS.map((verb, i) => {
       const w = cardWidth(verb.text);
-      const x = clamp(40 + Math.random() * (W - 80), w / 2, W - w / 2);
+      const x = clamp(balancedLaneX(cardSlots[i], W, laneCount), w / 2, W - w / 2);
       const y = slotY(cardSlots[i]); // 위쪽 밖, 공통 릴리즈 밴드
       const body = makeBoxBody(x, y, w, CARD_H); // 회전 금지(inertia = Infinity)
       // 각속도는 주지 않는다(회전 방지). 아래 방향 속도만 살짝.
@@ -120,7 +128,7 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     // 장식용 보라 사각형 — 글자·기능 없음(aria-hidden). 회전 없이 낱말 상자와 함께 적재.
     const squares: SquareRef[] = Array.from({ length: SQUARE_COUNT }, (_, i) => {
       const size = Math.round(SQUARE_MIN + Math.random() * SQUARE_RANGE);
-      const x = clamp(40 + Math.random() * (W - 80), size / 2, W - size / 2);
+      const x = clamp(balancedLaneX(squareSlots[i], W, laneCount), size / 2, W - size / 2);
       const y = slotY(squareSlots[i]); // 낱말 상자와 동일한 공통 릴리즈 밴드(교차 배치)
       const body = makeBoxBody(x, y, size, size); // 회전 금지(inertia = Infinity)
       Matter.Body.setVelocity(body, { x: 0, y: 1 + Math.random() });

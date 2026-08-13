@@ -85,6 +85,9 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
 
     const engine = Matter.Engine.create();
     engine.gravity.y = 1;
+    // 비중첩 강화(SOO-1063): 솔버 반복 횟수 상향(기본 6/4)으로 정착 시 카드·원 잔여 관통 감소.
+    engine.positionIterations = 10;
+    engine.velocityIterations = 8;
     const world = engine.world;
 
     // 벽(바닥/좌/우) — 화면 밖으로 못 나가게
