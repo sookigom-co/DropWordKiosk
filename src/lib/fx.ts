@@ -557,6 +557,47 @@ export function balancedLaneX(slot: number, width: number, laneCount: number, ma
   return centers[order[s % order.length]];
 }
 
+/**
+ * 벽돌쌓기 격자 좌표(SOO-1063 재수정).
+ * 카드 index(0..)를 **아래 행부터 좌우로** 채운다. 한 행이 cols 칸을 다 채우면 다음(위) 행으로.
+ * - 행 내부는 가운데-바깥(centerOutLaneOrder) 순서로 배치 → 부분만 찬 맨 위 행이 가운데로 모여
+ *   "가운데가 약간 높은 낮고 넓은 피라미드"가 된다.
+ * - 홀수 행은 반 칸(cellW/2) 오른쪽 오프셋 → 벽돌 어긋쌓기(위 카드가 아래 두 카드 사이에 얹힘).
+ *
+ * 레인 중심 고정(balancedLaneX)과 달리 같은 열이라도 **행마다 x 가 반 칸씩 어긋나** 세로 타워가
+ * 생기지 않는다. 랜덤 없이 index·cols·width 만으로 결정 → 반복 실행에도 동일 배치.
+ * 반환 x 는 [margin, width-margin] 로 클램프(호출부에서 아이템 반폭으로 추가 클램프).
+ */
+export function brickStackX(index: number, cols: number, width: number, margin = 40): number {
+  const w = Math.max(0, width);
+  const c = Math.max(1, Math.floor(Number.isFinite(cols) ? cols : 1));
+  const i = Number.isFinite(index) ? Math.max(0, Math.floor(index)) : 0;
+  const mx = Math.min(margin, w / 2);
+  const usable = Math.max(1, w - mx * 2);
+  const cellW = usable / c;
+  const row = Math.floor(i / c);
+  const fillCol = i % c;
+  const order = centerOutLaneOrder(c);
+  const visCol = order[fillCol % order.length];
+  const brick = row % 2 === 1 ? cellW / 2 : 0;
+  const x = mx + cellW * (visCol + 0.5) + brick;
+  return Math.min(w - mx, Math.max(mx, x));
+}
+
+/**
+ * 장식(보라 사각형) 전용 균등 분산 x(SOO-1063 재수정).
+ * count 개를 화면 폭에 **고르게** 흩뿌린다(index 마다 서로 다른 x) — 카드 레인과 슬롯을 공유하지
+ * 않으므로 세로 보라 기둥이 생기지 않는다. 결정적(랜덤 없음).
+ */
+export function spreadX(index: number, count: number, width: number, margin = 40): number {
+  const w = Math.max(0, width);
+  const n = Math.max(1, Math.floor(Number.isFinite(count) ? count : 1));
+  const i = Number.isFinite(index) ? Math.max(0, Math.floor(index)) : 0;
+  const mx = Math.min(margin, w / 2);
+  const usable = Math.max(1, w - mx * 2);
+  return mx + usable * ((i + 0.5) / n);
+}
+
 /** 보라색 HSL 문자열. alpha < 1 이면 반투명. */
 export function purpleColor(
   hue: number,
