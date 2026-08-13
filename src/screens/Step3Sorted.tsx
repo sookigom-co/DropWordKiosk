@@ -11,7 +11,7 @@ import {
   bodyCenter,
   WORD_BOX_SCALE,
 } from '../lib/physics';
-import { interleavedReleaseSlots, balancedLaneX, laneCountForWidth } from '../lib/fx';
+import { brickStackX, spreadX, laneCountForWidth } from '../lib/fx';
 
 interface Props {
   selectedId: string | null;
@@ -28,22 +28,24 @@ const CARD_H = Math.round(56 * WORD_BOX_SCALE);
 /**
  * 장식용 보라색 사각형 개수(SOO-1056 보더 재요청 `8b1b6614`).
  * Step 2 의 주황(노란) 원과 같은 역할 — 글자 없고 아무 기능 없는 순수 장식 파티클.
+ * SOO-1063 재수정: 카드 슬롯을 공유하며 세로 보라 기둥으로 뭉치던 문제를 없애기 위해
+ * 개수를 줄이고(10→6) 화면 폭에 균등 분산(`spreadX`)해 카드 사이 빈칸을 채운다.
  */
-const SQUARE_COUNT = 10;
-/** 장식 사각형 한 변 길이(px) 범위 — 낱말 상자보다 작게 랜덤. */
+const SQUARE_COUNT = 6;
+/** 장식 사각형 한 변 길이(px) 기준·증분 — 결정적(랜덤 제거, index 로 변주). */
 const SQUARE_MIN = 30;
-const SQUARE_RANGE = 24;
+const SQUARE_STEP = 6;
 /**
  * 낙하 릴리즈 밴드 — 상자·장식 사각형을 위쪽 밖에서 순차적으로 떨어뜨려
  * 차곡차곡 쌓이게 한다. 슬롯이 클수록 더 위(늦게 진입).
+ * SOO-1063 재수정: 랜덤 지터(`Math.random()*RELEASE_JITTER`) 제거 → 정착 계단식 어긋남 방지.
  */
 const RELEASE_BASE = -80;
 const RELEASE_STEP = 46;
-const RELEASE_JITTER = 24;
 
-/** 슬롯 인덱스 → 초기 y(위쪽 밖). */
+/** 슬롯 인덱스 → 초기 y(위쪽 밖). 결정적. */
 function slotY(slot: number): number {
-  return RELEASE_BASE - slot * RELEASE_STEP - Math.random() * RELEASE_JITTER;
+  return RELEASE_BASE - slot * RELEASE_STEP;
 }
 
 /** 텍스트 길이로 상자 폭 추정(물리 바디와 DOM 박스 폭을 일치시킴). WORD_BOX_SCALE(1.1) 반영. */
@@ -96,42 +98,37 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     // Step 1 물리 월드 재사용(좌·우·바닥 벽 — 천장 없음, 위에서 떨어뜨림).
     const world = createStep1World(W, H, 1);
 
-    // 낱말 상자와 장식 사각형을 하나의 공통 릴리즈 순서에 균등 교차 배치(Step 2 방식).
-    // 사각형이 배정받은 슬롯을 제외한 나머지를 낱말 상자가 순서대로 차지한다.
-    const squareSlotSet = new Set(interleavedReleaseSlots(VERBS.length, SQUARE_COUNT));
-    const cardSlots: number[] = [];
-    for (let s = 0; cardSlots.length < VERBS.length; s++) {
-      if (!squareSlotSet.has(s)) cardSlots.push(s);
-    }
-    const squareSlots = [...squareSlotSet].sort((a, b) => a - b);
-
-    // 결정적 균형 적재(SOO-1063): 화면 폭을 레인으로 나눠 카드·장식을 slot(방출 순서) 기준으로
-    // 가운데-바깥 라운드로빈 배정한다. 랜덤 x 를 제거해 좌우 쏠림을 없애고, 카드·사각형이 공통
-    // 슬롯 공간을 공유하므로 전체 낙하 세트가 한 덩어리로 좌우 균형을 이룬다.
+    // 결정적 벽돌쌓기 적재(SOO-1063 재수정): 카드를 아래 행부터 좌우로 채우고(brickStackX),
+    // 홀수 행은 반 칸 어긋나게 얹어 세로 타워를 없앤다. 슬롯(=index) 이 작을수록 먼저·낮게 떨어져
+    // 아래 행이 먼저 정착 → "가운데가 약간 높은 낮고 넓은 피라미드". 랜덤 없이 결정적.
     const repCardW = cardWidth(
       '가'.repeat(Math.max(1, Math.round(VERBS.reduce((s, v) => s + v.text.length, 0) / VERBS.length))),
     );
-    const laneCount = laneCountForWidth(W, repCardW);
+    // 현재(3~4)보다 촘촘하게 — 행당 최소 4열 확보(폭 여유 시 최대 6).
+    const cols = laneCountForWidth(W, repCardW, 40, 4, 6);
 
     const cards: CardRef[] = VERBS.map((verb, i) => {
       const w = cardWidth(verb.text);
-      const x = clamp(balancedLaneX(cardSlots[i], W, laneCount), w / 2, W - w / 2);
-      const y = slotY(cardSlots[i]); // 위쪽 밖, 공통 릴리즈 밴드
+      const x = clamp(brickStackX(i, cols, W), w / 2, W - w / 2);
+      const y = slotY(i); // index 순서로 아래 행부터 릴리즈(바닥 먼저 정착)
       const body = makeBoxBody(x, y, w, CARD_H); // 회전 금지(inertia = Infinity)
-      // 각속도는 주지 않는다(회전 방지). 아래 방향 속도만 살짝.
-      Matter.Body.setVelocity(body, { x: 0, y: 1 + Math.random() });
+      // 각속도는 주지 않는다(회전 방지). 아래 방향 속도만 결정적으로 살짝(좌우 편향 없음).
+      Matter.Body.setVelocity(body, { x: 0, y: 1 + (i % 3) * 0.3 });
       addBody(world, body);
       return { id: verb.id, text: verb.text, w, body, el: null };
     });
     cardsRef.current = cards;
 
-    // 장식용 보라 사각형 — 글자·기능 없음(aria-hidden). 회전 없이 낱말 상자와 함께 적재.
+    // 장식용 보라 사각형 — 글자·기능 없음(aria-hidden). 카드 슬롯과 분리하여 폭 전체에 균등 분산
+    // (spreadX)해 카드 사이 빈칸을 채운다. 카드 뒤(위 행)에 섞여 떨어지도록 슬롯을 인터리브.
     const squares: SquareRef[] = Array.from({ length: SQUARE_COUNT }, (_, i) => {
-      const size = Math.round(SQUARE_MIN + Math.random() * SQUARE_RANGE);
-      const x = clamp(balancedLaneX(squareSlots[i], W, laneCount), size / 2, W - size / 2);
-      const y = slotY(squareSlots[i]); // 낱말 상자와 동일한 공통 릴리즈 밴드(교차 배치)
+      const size = SQUARE_MIN + (i % 4) * SQUARE_STEP; // 30~48px 결정적 변주
+      const x = clamp(spreadX(i, SQUARE_COUNT, W), size / 2, W - size / 2);
+      // 카드 릴리즈 타임라인에 고르게 끼워 넣어 한 번에 같은 높이로 떨어지지 않게 한다.
+      const slot = Math.round(((i + 0.5) / SQUARE_COUNT) * (VERBS.length - 1));
+      const y = slotY(slot);
       const body = makeBoxBody(x, y, size, size); // 회전 금지(inertia = Infinity)
-      Matter.Body.setVelocity(body, { x: 0, y: 1 + Math.random() });
+      Matter.Body.setVelocity(body, { x: 0, y: 1 + (i % 3) * 0.3 });
       addBody(world, body);
       return { size, body, el: null };
     });

@@ -7,6 +7,8 @@ import {
   balancedLaneX,
   bodiesSettled,
   bottomSpawnPoint,
+  brickStackX,
+  spreadX,
   centerOutLaneOrder,
   laneCenters,
   laneCountForWidth,
@@ -579,6 +581,37 @@ describe('결정적 균형 적재 레인 (SOO-1063)', () => {
     expect(Math.abs(left - right)).toBeLessThanOrEqual(1);
     // 사용된 레인 수 = 레인 전체(모든 레인이 채워짐)
     expect(new Set(xs.map((x) => Math.round(x))).size).toBe(n);
+  });
+
+  it('brickStackX — 결정적이고, 홀수 행은 반 칸 어긋나 세로 타워가 없다(SOO-1063)', () => {
+    const W = 768;
+    const cols = 4;
+    // 결정성: 같은 index → 같은 x
+    expect(brickStackX(5, cols, W)).toBe(brickStackX(5, cols, W));
+    // 같은 열(fillCol) 이라도 행이 다르면 x 가 달라진다(타워 방지).
+    // index 0 = 행0·fillCol0, index cols = 행1·fillCol0 → 홀수 행 반 칸 오프셋으로 x 상이.
+    expect(brickStackX(0, cols, W)).not.toBe(brickStackX(cols, cols, W));
+    // 한 행(cols개)을 채우면 좌우가 균형 — 평균 x 가 화면 중앙 근처.
+    const rowXs = Array.from({ length: cols }, (_, i) => brickStackX(i, cols, W));
+    const avg = rowXs.reduce((a, b) => a + b, 0) / cols;
+    expect(Math.abs(avg - W / 2)).toBeLessThan(W * 0.12);
+    // 여러 행에 걸쳐 x 가 여러 값으로 분포(단일 열 뭉침 아님).
+    const many = Array.from({ length: 18 }, (_, i) => Math.round(brickStackX(i, cols, W)));
+    expect(new Set(many).size).toBeGreaterThanOrEqual(cols + 1);
+  });
+
+  it('spreadX — 장식이 폭 전체에 서로 다른 x 로 균등 분산(보라 기둥 방지, SOO-1063)', () => {
+    const W = 768;
+    const n = 6;
+    const xs = Array.from({ length: n }, (_, i) => spreadX(i, n, W));
+    // 모두 서로 다른 x(세로 기둥 아님)
+    expect(new Set(xs.map((x) => Math.round(x))).size).toBe(n);
+    // 단조 증가(좌→우 균등)
+    for (let i = 1; i < n; i++) expect(xs[i]).toBeGreaterThan(xs[i - 1]);
+    // 결정적
+    expect(spreadX(3, n, W)).toBe(spreadX(3, n, W));
+    // 좌우 균형: 절반은 중앙 왼쪽, 절반은 오른쪽
+    expect(xs.filter((x) => x < W / 2).length).toBe(n / 2);
   });
 });
 
