@@ -3,6 +3,7 @@ import Matter from 'matter-js';
 import { ScreenFrame } from '../components/ScreenFrame';
 import { NextButton } from '../components/NextButton';
 import { ADJECTIVES } from '../data/words';
+import { purpleScaleRadius, referenceBubblePx } from '../lib/fx';
 
 interface Props {
   selectedId: string | null;
@@ -10,14 +11,21 @@ interface Props {
   onNext: () => void;
 }
 
-const CARD_H = 52;
+/** 사각형(낱말카드) 크기 배율 — 보더 요청(SOO-1054) 1.5배. */
+const CARD_SCALE = 1.5;
+const CARD_H = Math.round(52 * CARD_SCALE);
 const WALL = 60;
 const PARTICLE_COUNT = 12;
-const PARTICLE_R = 12;
+/**
+ * 낙하 회전 감소(SOO-1054) — 초기 기울기와 각속도를 대폭 줄인다.
+ * 이전: 기울기 ±0.25rad, 각속도 ±0.03 → 현재: 기울기 ±0.06rad, 각속도 ±0.006.
+ */
+const INIT_ANGLE_RANGE = 0.12;
+const INIT_ANGULAR_VELOCITY = 0.012;
 
-/** 텍스트 길이로 카드 폭 추정(물리 바디와 DOM 카드 폭을 일치시킴) */
+/** 텍스트 길이로 카드 폭 추정(물리 바디와 DOM 카드 폭을 일치시킴). 1.5배 확대 반영. */
 function cardWidth(text: string): number {
-  return Math.round(text.length * 26 + 36);
+  return Math.round((text.length * 26 + 36) * CARD_SCALE);
 }
 
 interface CardRef {
@@ -26,6 +34,12 @@ interface CardRef {
   w: number;
   body: Matter.Body;
   el: HTMLButtonElement | null;
+}
+
+interface ParticleRef {
+  r: number;
+  body: Matter.Body;
+  el: HTMLDivElement | null;
 }
 
 /**
@@ -37,7 +51,7 @@ interface CardRef {
 export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<CardRef[]>([]);
-  const particlesRef = useRef<{ body: Matter.Body; el: HTMLDivElement | null }[]>([]);
+  const particlesRef = useRef<ParticleRef[]>([]);
   const [ready, setReady] = useState(false);
   // 선택 상태를 DOM className 으로 반영하기 위한 재렌더 트리거
   const [, force] = useState(0);
@@ -70,10 +84,10 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
         restitution: 0.35,
         friction: 0.35,
         frictionAir: 0.01,
-        angle: (Math.random() - 0.5) * 0.5,
+        angle: (Math.random() - 0.5) * INIT_ANGLE_RANGE,
       });
       Matter.Body.setVelocity(body, { x: (Math.random() - 0.5) * 2, y: 1 + Math.random() * 2 });
-      Matter.Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.06);
+      Matter.Body.setAngularVelocity(body, (Math.random() - 0.5) * INIT_ANGULAR_VELOCITY);
       return { id: adj.id, text: adj.text, w, body, el: null };
     });
     Matter.Composite.add(
@@ -82,17 +96,19 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
     );
     cardsRef.current = cards;
 
-    // 주황 원 파티클
-    const particles = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
-      const x = 40 + Math.random() * (W - 80);
+    // 주황 원 파티클 — 크기는 Step1 보라 원과 같은 스케일 대역에서 랜덤(SOO-1054)
+    const refBubble = referenceBubblePx(W);
+    const particles: ParticleRef[] = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
+      const r = purpleScaleRadius(refBubble, Math.random());
+      const x = clamp(40 + Math.random() * (W - 80), r, W - r);
       const y = -60 - i * 30 - Math.random() * 60;
-      const body = Matter.Bodies.circle(x, y, PARTICLE_R, {
+      const body = Matter.Bodies.circle(x, y, r, {
         restitution: 0.6,
         friction: 0.2,
         frictionAir: 0.01,
       });
       Matter.Body.setVelocity(body, { x: (Math.random() - 0.5) * 3, y: 1 });
-      return { body, el: null as HTMLDivElement | null };
+      return { r, body, el: null };
     });
     Matter.Composite.add(
       world,
@@ -119,7 +135,7 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
       for (const p of particles) {
         if (p.el) {
           const { x, y } = p.body.position;
-          p.el.style.transform = `translate(${x - PARTICLE_R}px, ${y - PARTICLE_R}px)`;
+          p.el.style.transform = `translate(${x - p.r}px, ${y - p.r}px)`;
         }
       }
       raf = requestAnimationFrame(tick);
@@ -144,7 +160,6 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
 
   return (
     <ScreenFrame label="STEP2 수식어 선택 화면">
-      <p className="screen__eyebrow">STEP 2. 수식어 선택</p>
       <div className="card-stage" ref={stageRef} role="group" aria-label="선택한 대상을 표현할 말">
         {ready &&
           cardsRef.current.map((c, idx) => (
@@ -153,7 +168,18 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
               type="button"
               className="word-card"
               aria-pressed={selectedId === c.id}
-              style={{ width: c.w, top: 0, left: 0 }}
+              style={{
+                width: c.w,
+                height: CARD_H,
+                top: 0,
+                left: 0,
+                // 물리 바디(1.5배)와 DOM 박스를 정확히 일치시키고 글자도 함께 확대
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 18px',
+                fontSize: 'clamp(27px, 4.2vw, 39px)',
+              }}
               ref={(el) => {
                 cardsRef.current[idx].el = el;
               }}
@@ -163,7 +189,7 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
             </button>
           ))}
         {ready &&
-          particlesRef.current.map((_p, idx) => (
+          particlesRef.current.map((p, idx) => (
             <div
               key={`p-${idx}`}
               aria-hidden="true"
@@ -172,8 +198,8 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
               }}
               style={{
                 position: 'absolute',
-                width: PARTICLE_R * 2,
-                height: PARTICLE_R * 2,
+                width: p.r * 2,
+                height: p.r * 2,
                 borderRadius: '50%',
                 background: 'var(--accent-orange)',
                 top: 0,

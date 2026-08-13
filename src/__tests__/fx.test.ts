@@ -19,7 +19,10 @@ import {
   pickSpawnPointBand,
   pickSpawnPointFull,
   purpleColor,
+  purpleScaleRadius,
   randomTargetPx,
+  REFERENCE_BUBBLE_CAP_PX,
+  referenceBubblePx,
   spawnBetweenBodies,
   type Circle,
   type FxSettings,
@@ -363,5 +366,33 @@ describe('purpleColor', () => {
   });
   it('범위를 벗어난 hue 는 클램프', () => {
     expect(purpleColor(999)).toContain(`hsl(${FX_RANGES.hue.max} `);
+  });
+});
+
+describe('referenceBubblePx (SOO-1054 공용 참조 지름)', () => {
+  it('폭이 작으면 폭의 20%', () => {
+    expect(referenceBubblePx(500)).toBeCloseTo(100);
+  });
+  it('폭이 크면 CAP 로 상한', () => {
+    expect(referenceBubblePx(2000)).toBe(REFERENCE_BUBBLE_CAP_PX);
+  });
+  it('음수 폭은 0', () => {
+    expect(referenceBubblePx(-100)).toBe(0);
+  });
+});
+
+describe('purpleScaleRadius (SOO-1054 Step2 원 = Step1 보라 원 스케일)', () => {
+  const bubble = 132; // 참조 지름
+  it('rnd=1 이면 상한(=지름 100%의 절반)', () => {
+    // 기본 maxSizeRatio=1 → 목표 지름 최대 = bubble → 반지름 = bubble/2
+    expect(purpleScaleRadius(bubble, 1)).toBeCloseTo(bubble / 2);
+  });
+  it('rnd=0 이면 하한(=지름 50%의 절반)', () => {
+    expect(purpleScaleRadius(bubble, 0)).toBeCloseTo((bubble * 0.5) / 2);
+  });
+  it('rnd 은 randomTargetPx/2 와 동일', () => {
+    for (const rnd of [0.2, 0.5, 0.9]) {
+      expect(purpleScaleRadius(bubble, rnd)).toBeCloseTo(randomTargetPx(bubble, 1, rnd) / 2);
+    }
   });
 });
