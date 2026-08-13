@@ -57,6 +57,30 @@ export function makeWordBody(x: number, y: number, radius: number): Matter.Body 
 }
 
 /**
+ * 사각형 낱말 상자(동적 강체) 생성 — Step 3 낙하 적재용(SOO-1056).
+ *
+ * `inertia = Infinity`(inverseInertia = 0)로 회전 관성을 무한대로 두어
+ * 낙하·충돌 과정에서 토크가 각가속도로 전환되지 않는다. 초기 각도를 0 으로
+ * 두고 각속도를 주지 않으면 상자는 각도 0 을 유지한 채 평평하게 떨어진다.
+ * 높은 마찰·낮은 튕김으로 바닥과 서로 위에 차곡차곡 쌓인다.
+ * world 에는 아직 추가하지 않는다.
+ */
+export function makeBoxBody(x: number, y: number, width: number, height: number): Matter.Body {
+  const body = Bodies.rectangle(x, y, width, height, {
+    restitution: 0.05,
+    friction: 0.8,
+    frictionStatic: 1,
+    frictionAir: 0.01,
+    density: 0.0016,
+    angle: 0,
+  });
+  // 회전 금지: inertia 를 무한대로 고정(충돌 각충격량 = inverseInertia * ... = 0).
+  Body.setInertia(body, Infinity);
+  Body.setAngle(body, 0);
+  return body;
+}
+
+/**
  * 보라색 공(정적 강체) 생성. 정적이라 중력에 떨어지지 않고 제자리에서
  * 반지름이 커지며 주변 동적 단어 원을 밀어낸다(위로 들어 올린다).
  */

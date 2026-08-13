@@ -395,6 +395,12 @@ button {
   white-space: nowrap;
   will-change: transform;
 }
+/* STEP3 보라색 낱말 상자(SOO-1056) — 낙하·비회전 적재. */
+.word-card--purple {
+  background: var(--accent-purple);
+  border-color: var(--accent-purple);
+  color: #fff;
+}
 .word-card[aria-pressed='true'] {
   background: var(--accent-orange);
   border-color: var(--accent-orange);
