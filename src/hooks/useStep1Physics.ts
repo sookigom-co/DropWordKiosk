@@ -4,18 +4,21 @@ import {
   makeWordBody,
   makePurpleBody,
   addBody,
-  removeBody,
   setCircleRadius,
   stepEngine,
   bodyCenter,
   type Step1World,
 } from '../lib/physics';
 import {
+  bodiesSettled,
   easeOutCubic,
+  firstFreeSpawn,
   growthRadius,
+  maxGrowRadius,
   pickSpawnPoint,
   purpleColor,
   randomTargetPx,
+  type Circle,
   type FxSettings,
 } from '../lib/fx';
 import type { WordItem } from '../data/words';
@@ -26,15 +29,26 @@ export interface PurpleView {
   color: string;
 }
 
-/** 동시에 떠 있는 보라색 공 상한(성능 보호). */
-const MAX_PURPLE = 5;
+/**
+ * 세션 동안 유지되는 보라색 공 상한(성능 안전판).
+ * 공은 소멸하지 않으므로(SOO-1049) 비중첩 스폰이 실질 상한을 만들지만,
+ * 라즈베리파이 부하 폭주를 막기 위한 하드 캡을 둔다.
+ */
+const MAX_PURPLE = 40;
 /** 단어 원 낙하 시작 간격(ms) — 우수수 떨어지는 스태거. */
 const RELEASE_STAGGER = 110;
-/** 보라 공 유지·수축 시간(ms). */
-const PURPLE_HOLD_MS = 900;
-const PURPLE_SHRINK_MS = 700;
 /** 보라 공 시작 반지름(px). */
 const PURPLE_START_R = 6;
+/** 스폰 후보 시도 횟수 — 이 횟수 안에 빈 공간을 못 찾으면 이번 스폰 건너뜀. */
+const SPAWN_TRIES = 18;
+/** 스폰 시 기존 공·단어와 유지할 최소 여유 간격(px). */
+const SPAWN_PAD = 6;
+/** 성장 시 다른 공과 유지할 최소 여유 간격(px, 시각적 겹침 0 보장). */
+const GROW_PAD = 2;
+/** 정착 판정 속도 임계값(matter speed). 이 이하가 유지되면 멈춘 것으로 본다. */
+const SETTLE_SPEED = 0.4;
+/** 정착 유지 시간(ms) — 임계 이하가 이만큼 지속돼야 낙하 완료로 확정. */
+const SETTLE_HOLD_MS = 450;
 
 interface WordSim {
   id: string;
@@ -49,6 +63,8 @@ interface PurpleSim {
   bornAt: number; // ms
   targetR: number;
   growDurMs: number;
+  /** 현재 렌더 반지름(px) — 단조 증가, 절대 줄지 않는다. */
+  curR: number;
 }
 
 export interface Step1PhysicsApi {
@@ -143,16 +159,47 @@ export function useStep1Physics(
     let lastTs = -1;
     let lastSpawn = -Infinity;
     let raf = 0;
+    // 낙하 완료(정착) 판정 상태.
+    let settled = false;
+    let settleSince = -1; // 속도 임계 이하 진입 시각(ms), 리셋되면 -1
 
-    const spawnPurple = (nowMs: number) => {
+    /**
+     * 빈 공간에 보라 공 하나 스폰 시도. 기존 공·단어와 겹치지 않는 후보를
+     * SPAWN_TRIES 번 안에 찾으면 생성하고 true, 못 찾으면 생성하지 않고 false.
+     * (false 여도 기존 공은 유지 — SOO-1049 영속 규칙.)
+     */
+    const trySpawnPurple = (nowMs: number): boolean => {
       const s = settingsRef.current;
-      const { x, y } = pickSpawnPoint(width, height, Math.random(), Math.random());
+      // 점유 영역: 기존 보라 공 + 낙하 완료된 단어 원.
+      const occupied: Circle[] = [];
+      for (const p of purpleSims) {
+        occupied.push({ x: p.body.position.x, y: p.body.position.y, r: p.curR });
+      }
+      for (const ws of wordSims) {
+        if (ws.released) {
+          occupied.push({ x: ws.body.position.x, y: ws.body.position.y, r: radius });
+        }
+      }
+      const candidates: { x: number; y: number }[] = [];
+      for (let k = 0; k < SPAWN_TRIES; k++) {
+        candidates.push(pickSpawnPoint(width, height, Math.random(), Math.random()));
+      }
+      const spot = firstFreeSpawn(candidates, PURPLE_START_R, occupied, SPAWN_PAD);
+      if (!spot) return false; // 빈 공간 없음 → 이번 스폰 건너뜀.
       const targetR = randomTargetPx(bubblePx, s.maxSizeRatio, Math.random()) / 2;
-      const body = makePurpleBody(x, y, PURPLE_START_R);
+      const body = makePurpleBody(spot.x, spot.y, PURPLE_START_R);
       addBody(world, body);
       const id = ++purpleId;
-      purpleSims.push({ id, body, bornAt: nowMs, targetR, growDurMs: s.growDurationSec * 1000 });
+      purpleSims.push({
+        id,
+        body,
+        bornAt: nowMs,
+        targetR,
+        growDurMs: s.growDurationSec * 1000,
+        curR: PURPLE_START_R,
+      });
       setPurples((ps) => [...ps, { id, color: purpleColor(s.hue, { alpha: 0.5 }) }]);
+      return true;
     };
 
     const frame = (ts: number) => {
@@ -176,39 +223,48 @@ export function useStep1Physics(
 
       stepEngine(world, dt);
 
-      // 보라 공 생성.
-      if (nowMs - lastSpawn >= settingsRef.current.spawnIntervalMs && purpleSims.length < MAX_PURPLE) {
-        spawnPurple(nowMs);
-        lastSpawn = nowMs;
+      // 정착 판정: 모든 단어가 방출되고 전 속도가 임계 이하로 SETTLE_HOLD_MS 유지.
+      if (!settled) {
+        const allReleased = wordSims.every((s) => s.released);
+        const speeds = allReleased ? wordSims.map((s) => s.body.speed) : [];
+        if (allReleased && bodiesSettled(speeds, SETTLE_SPEED)) {
+          if (settleSince < 0) settleSince = nowMs;
+          else if (nowMs - settleSince >= SETTLE_HOLD_MS) settled = true;
+        } else {
+          settleSince = -1;
+        }
       }
 
-      // 보라 공 성장·유지·수축·제거.
-      for (let i = purpleSims.length - 1; i >= 0; i--) {
+      // 보라 공 생성 — 낙하 완료 후에만, 빈 공간이 있을 때만.
+      if (
+        settled &&
+        nowMs - lastSpawn >= settingsRef.current.spawnIntervalMs &&
+        purpleSims.length < MAX_PURPLE
+      ) {
+        if (trySpawnPurple(nowMs)) lastSpawn = nowMs;
+      }
+
+      // 보라 공 성장(영속 — 수축·제거 없음). 다른 공과 겹치면 성장 정지.
+      for (let i = 0; i < purpleSims.length; i++) {
         const p = purpleSims[i];
         const age = nowMs - p.bornAt;
-        const grow = p.growDurMs;
-        const holdEnd = grow + PURPLE_HOLD_MS;
-        const lifeEnd = holdEnd + PURPLE_SHRINK_MS;
-        let r: number;
-        let alpha: number;
-        if (age <= grow) {
-          r = growthRadius(PURPLE_START_R, p.targetR, age / 1000, grow / 1000);
-          alpha = 0.15 + 0.4 * easeOutCubic(age / grow);
-        } else if (age <= holdEnd) {
-          r = p.targetR;
-          alpha = 0.55;
-        } else if (age <= lifeEnd) {
-          const k = (age - holdEnd) / PURPLE_SHRINK_MS;
-          r = p.targetR * (1 - k);
-          alpha = 0.55 * (1 - k);
-        } else {
-          removeBody(world, p.body);
-          purpleSims.splice(i, 1);
-          const rid = p.id;
-          setPurples((ps) => ps.filter((v) => v.id !== rid));
-          continue;
+        const desired =
+          age >= p.growDurMs
+            ? p.targetR
+            : growthRadius(PURPLE_START_R, p.targetR, age / 1000, p.growDurMs / 1000);
+        // 다른 보라 공과 겹치지 않도록 성장 상한 계산(공끼리 비중첩).
+        const others: Circle[] = [];
+        for (let j = 0; j < purpleSims.length; j++) {
+          if (j === i) continue;
+          const q = purpleSims[j];
+          others.push({ x: q.body.position.x, y: q.body.position.y, r: q.curR });
         }
+        const cap = maxGrowRadius(p.body.position.x, p.body.position.y, desired, others, GROW_PAD);
+        // 단조 증가: 절대 줄지 않는다(공 영속). 상한이 현재보다 작으면 현재 유지(정지).
+        const r = Math.max(p.curR, Math.min(desired, cap));
+        p.curR = r;
         setCircleRadius(p.body, r);
+        const alpha = 0.15 + 0.4 * easeOutCubic(Math.min(1, age / p.growDurMs));
         const el = purpleEls.current.get(p.id);
         if (el) writePurple(el, bodyCenter(p.body), r, alpha);
       }
