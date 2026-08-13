@@ -160,6 +160,31 @@ export function pickSpawnPointFull(
 }
 
 /**
+ * 필드의 세로 "밴드"(yLoRatio~yHiRatio, 높이 대비 0~1) 안에서 스폰 지점을 고른다.
+ * 보더 요청 SOO-1049 후속 — 스폰 위치 우선순위(단어 사이 → 하단 → 상단)를 구현하기 위해
+ * 하단 밴드·상단 밴드를 각각 별도 후보로 만들 때 사용한다. rndX·rndY 는 0~1 난수(테스트 주입).
+ */
+export function pickSpawnPointBand(
+  width: number,
+  height: number,
+  rndX: number,
+  rndY: number,
+  yLoRatio: number,
+  yHiRatio: number,
+  margin = 40,
+): { x: number; y: number } {
+  const w = Math.max(0, width);
+  const h = Math.max(0, height);
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+  const lo = clamp01(yLoRatio);
+  const hi = Math.max(lo, clamp01(yHiRatio));
+  const mx = Math.min(margin, w / 2);
+  const x = mx + clamp01(rndX) * Math.max(0, w - mx * 2);
+  const y = h * (lo + clamp01(rndY) * (hi - lo));
+  return { x, y };
+}
+
+/**
  * 정착한 단어 원들 "사이"에서 스폰 지점을 고른다(보더 요청 SOO-1049 후속).
  * 서로 다른 두 단어 원을 무작위로 골라 그 중점 부근(±jitter)을 반환한다 →
  * 공이 무더기 위가 아니라 단어들 사이에서 솟아오른다.

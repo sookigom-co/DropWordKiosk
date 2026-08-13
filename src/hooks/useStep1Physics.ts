@@ -18,7 +18,7 @@ import {
   firstFreeSpawn,
   growthRadius,
   maxGrowRadius,
-  pickSpawnPointFull,
+  pickSpawnPointBand,
   purpleColor,
   randomTargetPx,
   spawnBetweenBodies,
@@ -50,6 +50,17 @@ const PURPLE_START_R = 6;
  * 화면이 촘촘히 찰수록 남은 틈이 작아지므로, "가득 채움"을 위해 넉넉히 시도한다.
  */
 const SPAWN_TRIES = 40;
+/**
+ * 스폰 위치 우선순위(보더 요청 SOO-1049 후속)를 위해 티어별로 나눈 시도 횟수.
+ * firstFreeSpawn 은 후보 배열 순서대로 첫 빈자리를 고르므로, 후보를
+ * [단어 사이 → 하단 → 상단] 순으로 쌓으면 그 우선순위대로 스폰된다.
+ * 세 티어 합 = SPAWN_TRIES 를 유지(가득 채움 시도 총량 보존).
+ */
+const SPAWN_TRIES_PER_TIER = Math.ceil(SPAWN_TRIES / 3);
+/** 하단 밴드(높이 대비): 단어 무더기가 쌓이는 아래 절반. */
+const BOTTOM_BAND: readonly [number, number] = [0.5, 0.92];
+/** 상단 밴드(높이 대비): 마진 아래 위쪽 절반(최후 순위). */
+const TOP_BAND: readonly [number, number] = [0.06, 0.5];
 /** 스폰 시 기존 공·단어와 유지할 최소 여유 간격(px, 작을수록 촘촘히 채움). */
 const SPAWN_PAD = 2;
 /** 성장 시 다른 공과 유지할 최소 여유 간격(px, 시각적 겹침 0 보장). */
@@ -204,23 +215,43 @@ export function useStep1Physics(
       const margin = 40;
       const clampX = (v: number) => Math.min(width - margin, Math.max(margin, v));
       const clampY = (v: number) => Math.min(height - margin, Math.max(margin, v));
+      // 보더 요청(SOO-1049 후속): 스폰 위치 우선순위 = ①단어 사이(최우선)
+      // → ②하단(차우선) → ③상단(최후). firstFreeSpawn 이 후보 순서대로 첫 빈자리를
+      // 고르므로, 후보 배열을 이 우선순위대로 쌓기만 하면 된다.
       const candidates: { x: number; y: number }[] = [];
-      for (let k = 0; k < SPAWN_TRIES; k++) {
-        // 보더 요청(SOO-1049 후속) "가득 채움": 필드 전체를 균일 커버하도록
-        // 절반은 전체 필드 무작위, 절반은 단어 사이 지점을 후보로 섞는다.
-        let raw: { x: number; y: number };
-        if (k % 2 === 0 || wordCenters.length === 0) {
-          raw = pickSpawnPointFull(width, height, Math.random(), Math.random());
-        } else {
-          const between = spawnBetweenBodies(
-            wordCenters,
-            Math.random(),
-            Math.random(),
-            Math.random(),
-            Math.random(),
-          );
-          raw = between ?? pickSpawnPointFull(width, height, Math.random(), Math.random());
-        }
+      // 티어 1 — 단어 사이(최우선). 단어가 없으면 건너뜀.
+      for (let k = 0; k < SPAWN_TRIES_PER_TIER; k++) {
+        const between = spawnBetweenBodies(
+          wordCenters,
+          Math.random(),
+          Math.random(),
+          Math.random(),
+          Math.random(),
+        );
+        if (between) candidates.push({ x: clampX(between.x), y: clampY(between.y) });
+      }
+      // 티어 2 — 하단(차우선).
+      for (let k = 0; k < SPAWN_TRIES_PER_TIER; k++) {
+        const raw = pickSpawnPointBand(
+          width,
+          height,
+          Math.random(),
+          Math.random(),
+          BOTTOM_BAND[0],
+          BOTTOM_BAND[1],
+        );
+        candidates.push({ x: clampX(raw.x), y: clampY(raw.y) });
+      }
+      // 티어 3 — 상단(최후).
+      for (let k = 0; k < SPAWN_TRIES_PER_TIER; k++) {
+        const raw = pickSpawnPointBand(
+          width,
+          height,
+          Math.random(),
+          Math.random(),
+          TOP_BAND[0],
+          TOP_BAND[1],
+        );
         candidates.push({ x: clampX(raw.x), y: clampY(raw.y) });
       }
       const spot = firstFreeSpawn(candidates, PURPLE_START_R, occupied, SPAWN_PAD);
