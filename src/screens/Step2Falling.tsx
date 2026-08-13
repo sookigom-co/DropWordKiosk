@@ -14,6 +14,8 @@ interface Props {
 /** 사각형(낱말카드) 크기 배율 — 보더 요청(SOO-1054) 1.5배. */
 const CARD_SCALE = 1.5;
 const CARD_H = Math.round(52 * CARD_SCALE);
+/** 주황 원 크기 배율 — 보더 요청(SOO-1054 후속) 0.5배 축소. */
+const CIRCLE_SCALE = 0.5;
 const WALL = 60;
 const PARTICLE_COUNT = 12;
 /**
@@ -99,7 +101,7 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
     // 주황 원 파티클 — 크기는 Step1 보라 원과 같은 스케일 대역에서 랜덤(SOO-1054)
     const refBubble = referenceBubblePx(W);
     const particles: ParticleRef[] = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
-      const r = purpleScaleRadius(refBubble, Math.random());
+      const r = purpleScaleRadius(refBubble, Math.random()) * CIRCLE_SCALE;
       const x = clamp(40 + Math.random() * (W - 80), r, W - r);
       const y = -60 - i * 30 - Math.random() * 60;
       const body = Matter.Bodies.circle(x, y, r, {
