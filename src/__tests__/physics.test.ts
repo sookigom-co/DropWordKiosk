@@ -8,6 +8,8 @@ import {
   addCeiling,
   setCircleRadius,
   stepEngine,
+  WORD_DENSITY,
+  BUBBLE_DENSITY,
 } from '../lib/physics';
 import { buoyancyForce } from '../lib/fx';
 
@@ -45,6 +47,57 @@ describe('물리 — 중력 낙하·바닥 안착', () => {
     run(slow, 12);
     run(fast, 12);
     expect(bf.position.y).toBeGreaterThan(bs.position.y);
+  });
+});
+
+describe('단어 무게 — 버블보다 무겁게 가라앉는 질감(SOO-1058)', () => {
+  it('단어 밀도가 버블 밀도보다 크다', () => {
+    expect(WORD_DENSITY).toBeGreaterThan(BUBBLE_DENSITY);
+  });
+
+  it('같은 반지름이면 단어 원이 버블보다 무겁다(질량↑)', () => {
+    const word = makeWordBody(0, 0, R);
+    const bubble = makeBubbleBody(0, 0, R);
+    expect(word.mass).toBeGreaterThan(bubble.mass);
+    // 밀도 비율만큼(면적 동일) 질량비가 밀도비와 일치한다.
+    expect(word.mass / bubble.mass).toBeCloseTo(WORD_DENSITY / BUBBLE_DENSITY, 5);
+  });
+
+  it('무거운 단어는 같은 크기 버블의 부력에 덜 밀린다(가벼운 단어 대비)', () => {
+    // 동일 초기 배치에서, 무거운 단어(실제)와 가벼운 단어(버블과 동밀도)를 비교해
+    // 무거운 쪽이 버블에 덜 밀려 올라간다(가라앉는 질감).
+    const lift = (wordDensity: number): number => {
+      const world = createStep1World(W, H, 1);
+      const word = makeWordBody(W / 2, -R, R);
+      // 비교용으로 단어 밀도만 바꿔 재설정(matter Body.setDensity 대신 직접 계산 비교는
+      // 물리 상호작용을 봐야 하므로 실제 시뮬레이션으로 측정한다).
+      const scale = wordDensity / WORD_DENSITY;
+      word.mass *= scale;
+      word.inverseMass = 1 / word.mass;
+      addBody(world, word);
+      run(world, 240);
+      addCeiling(world);
+      const restY = word.position.y;
+      const bubble = makeBubbleBody(word.position.x, H - 6, 6);
+      addBody(world, bubble);
+      let peakLift = 0;
+      for (let i = 1; i <= 300; i++) {
+        bubble.force.y += buoyancyForce(
+          bubble.mass,
+          world.engine.gravity.y,
+          world.engine.gravity.scale,
+          1.7,
+        );
+        setCircleRadius(bubble, Math.min(R, 6 + (i / 60) * R));
+        stepEngine(world, 16);
+        peakLift = Math.min(peakLift, word.position.y - restY);
+      }
+      return peakLift; // 음수일수록 많이 밀려 올라감
+    };
+    const heavy = lift(WORD_DENSITY);
+    const light = lift(BUBBLE_DENSITY);
+    // 무거운 단어의 최고 리프트가 가벼운 단어보다 작다(덜 올라감 = 값이 더 큼/덜 음수).
+    expect(heavy).toBeGreaterThan(light);
   });
 });
 
