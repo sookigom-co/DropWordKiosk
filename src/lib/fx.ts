@@ -269,6 +269,31 @@ export function bottomSpawnPoint(
 }
 
 /**
+ * 보라 버블 상단 스폰 지점(SOO-1059).
+ * `bottomSpawnPoint` 의 상하 대칭 — 스테이지 천장선(y=0) 바로 아래(반지름만큼 안쪽)에서
+ * x 는 마진 안 좌우 랜덤으로 고른다 → 버블이 "위에서" 생성돼 (감쇠된) 중력으로 내려온다.
+ * 하단 스폰(부력 상승)과 짝을 이뤄 스폰을 이원화(절반 상단·절반 하단)한다.
+ * rndX 는 0~1 난수(테스트 시 주입). 결과 x 는 항상 마진 안, y 는 항상 필드 안(>=0).
+ */
+export function topSpawnPoint(
+  width: number,
+  height: number,
+  rndX: number,
+  startR: number,
+  margin = 40,
+): { x: number; y: number } {
+  const w = Math.max(0, width);
+  const h = Math.max(0, height);
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+  const mx = Math.min(margin, w / 2);
+  const x = mx + clamp01(rndX) * Math.max(0, w - mx * 2);
+  // 천장선(y=0) 바로 아래 — 반지름만큼 안쪽에 두어 천장을 뚫지 않게. 필드 안으로 클램프.
+  const r = Math.max(0, Number.isFinite(startR) ? startR : 0);
+  const y = Math.min(h, r + 1);
+  return { x, y };
+}
+
+/**
  * 부력(위로 뜨는 힘, SOO-1057) — matter 가 매 스텝 body.force.y 에 더하는 중력
  * (mass·gravityY·gravityScale)을 factor 배로 되갚아 상쇄·역전한다.
  * 반환값(음수)을 body.force.y 에 더한 뒤 matter 가 중력을 더하면 최종

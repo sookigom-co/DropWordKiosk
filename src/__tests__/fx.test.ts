@@ -28,6 +28,7 @@ import {
   referenceBubblePx,
   spawnBetweenBodies,
   swayForce,
+  topSpawnPoint,
   type Circle,
   type FxSettings,
 } from '../lib/fx';
@@ -209,6 +210,35 @@ describe('bottomSpawnPoint (SOO-1057 하단 스폰)', () => {
   });
 });
 
+describe('topSpawnPoint (SOO-1059 상단 스폰)', () => {
+  it('x 는 항상 마진 안', () => {
+    for (const rx of [0, 0.5, 1, NaN, -1, 2]) {
+      const p = topSpawnPoint(700, 500, rx, 6, 40);
+      expect(p.x).toBeGreaterThanOrEqual(40);
+      expect(p.x).toBeLessThanOrEqual(660);
+    }
+  });
+  it('y 는 천장선(0) 바로 아래 — 반지름만큼 안쪽', () => {
+    // startR=6 → y = 6 + 1 = 7
+    expect(topSpawnPoint(700, 500, 0.5, 6).y).toBeCloseTo(7);
+  });
+  it('bottomSpawnPoint 보다 항상 위(y 가 작다)', () => {
+    const top = topSpawnPoint(700, 500, 0.5, 6);
+    const bottom = bottomSpawnPoint(700, 500, 0.5, 6);
+    expect(top.y).toBeLessThan(bottom.y);
+  });
+  it('rndX 로 좌우가 결정된다(0=좌, 1=우)', () => {
+    expect(topSpawnPoint(700, 500, 0, 6, 40).x).toBeCloseTo(40);
+    expect(topSpawnPoint(700, 500, 1, 6, 40).x).toBeCloseTo(660);
+  });
+  it('음수·비유한 입력도 안전(y 는 필드 안 0~height)', () => {
+    const p = topSpawnPoint(-10, -10, 0.5, 6);
+    expect(p.y).toBeGreaterThanOrEqual(0);
+    // height=0 이면 y 는 0 으로 클램프(필드 밖으로 나가지 않음).
+    expect(p.y).toBeLessThanOrEqual(0);
+  });
+});
+
 describe('buoyancyForce (SOO-1057 부력)', () => {
   it('factor>1 이면 위로(음수) 순힘 — matter 는 위가 음수 y', () => {
     // 중력 추가분 = mass*g*scale = 1*1*0.001 = 0.001, factor=1.7 → -0.0017
@@ -220,6 +250,14 @@ describe('buoyancyForce (SOO-1057 부력)', () => {
   });
   it('질량에 비례(가속도는 질량 무관해짐)', () => {
     expect(buoyancyForce(2, 1, 0.001, 1.7)).toBeCloseTo(2 * buoyancyForce(1, 1, 0.001, 1.7));
+  });
+  it('factor<1 이면 순힘이 아래(양수) — 상단 스폰 버블 하강(SOO-1059)', () => {
+    // 반환값(-0.0005) + 중력(+0.001) = +0.0005 > 0 → 아래로 내려온다(감쇠 중력).
+    const buoy = buoyancyForce(1, 1, 0.001, 0.5);
+    const net = buoy + 1 * 1 * 0.001; // + matter 가 더하는 중력
+    expect(net).toBeGreaterThan(0);
+    // 감쇠: raw 중력(0.001)보다 작아 느긋하게 하강.
+    expect(net).toBeLessThan(0.001);
   });
   it('비유한 입력은 0 으로 안전화', () => {
     expect(buoyancyForce(NaN, 1, 0.001, 1.7)).toBe(-0);
