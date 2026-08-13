@@ -373,6 +373,36 @@ export function bodiesSettled(speeds: readonly number[], threshold: number): boo
   return true;
 }
 
+/**
+ * Step2 낙하 릴리즈 슬롯 배정(SOO-1054 후속 — 카드·원 균등 교차 낙하).
+ *
+ * 카드와 원을 개수가 달라도 하나의 릴리즈 순서 위에 균등하게 흩뿌린다.
+ * 반환값은 각 원(circle)에 배정된 릴리즈 슬롯 인덱스이며, 나머지 슬롯은
+ * 카드가 채운다. 슬롯이 클수록 위쪽(더 늦게 진입)에 배치된다.
+ *
+ * 예) 카드 21 · 원 12 → 총 33 슬롯. 원은 (j+0.5)*33/12 로 균등 분포되어
+ * 처음부터 끝까지 카드 사이사이에 섞인다(원이 먼저 뭉쳐 떨어지지 않음).
+ *
+ * @param cardCount   카드 개수
+ * @param circleCount 원 개수
+ * @returns 길이 circleCount 의 슬롯 인덱스 배열(오름차순, 0..total-1, 중복 없음)
+ */
+export function interleavedReleaseSlots(cardCount: number, circleCount: number): number[] {
+  if (circleCount <= 0) return [];
+  const total = cardCount + circleCount;
+  const used = new Set<number>();
+  const slots: number[] = [];
+  for (let j = 0; j < circleCount; j++) {
+    // 원 j 의 이상적 위치를 균등 분포로 잡고, 이미 쓴 슬롯이면 다음 빈 슬롯으로 밀어낸다.
+    let s = Math.min(total - 1, Math.floor(((j + 0.5) * total) / circleCount));
+    while (used.has(s) && s < total - 1) s++;
+    while (used.has(s) && s > 0) s--;
+    used.add(s);
+    slots.push(s);
+  }
+  return slots.sort((a, b) => a - b);
+}
+
 /** 보라색 HSL 문자열. alpha < 1 이면 반투명. */
 export function purpleColor(
   hue: number,
