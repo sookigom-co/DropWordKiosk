@@ -42,13 +42,14 @@ export const FX_RANGES: Readonly<Record<keyof FxSettings, FxRange>> = {
 
 /**
  * 기본 효과 설정. 보더 요청(SOO-1049 후속)에 맞춘 값:
- * - 생성 간격 0.1s(100ms) · 성장 시간 0.2s · 최대 크기 비율 50%.
+ * - 생성 간격 0.1s(100ms) · 성장 시간 0.2s · 최대 크기 비율 100%(단어 원 지름과 동일).
+ *   공 크기는 단어 원 지름의 50%(최소)~100%(최대) 사이에서 랜덤(보더 요청).
  */
 export const DEFAULT_FX_SETTINGS: FxSettings = {
   gravity: 1,
   spawnIntervalMs: 100,
   growDurationSec: 0.2,
-  maxSizeRatio: 0.5,
+  maxSizeRatio: 1,
   hue: 262,
 };
 
@@ -82,11 +83,12 @@ export function maxCirclePx(bubblePx: number, ratio: number): number {
 
 /**
  * [최소, 상한] 사이의 랜덤 목표 지름(px).
- * rnd 는 0~1 난수(테스트 시 주입). 상한은 maxCirclePx.
+ * rnd 는 0~1 난수(테스트 시 주입). 상한은 maxCirclePx(=cap, 100%),
+ * 최소는 cap 의 50%(보더 요청 SOO-1049 후속) — 즉 공은 최대 크기의 50%~100%.
  */
 export function randomTargetPx(bubblePx: number, ratio: number, rnd: number): number {
   const cap = maxCirclePx(bubblePx, ratio);
-  const floor = Math.min(cap, Math.max(10, cap * 0.45));
+  const floor = Math.min(cap, Math.max(10, cap * 0.5));
   const t = Math.min(1, Math.max(0, Number.isFinite(rnd) ? rnd : 0));
   return floor + (cap - floor) * t;
 }

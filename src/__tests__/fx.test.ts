@@ -77,6 +77,10 @@ describe('randomTargetPx', () => {
     expect(v).toBeLessThanOrEqual(cap);
     expect(v).toBeGreaterThan(0);
   });
+  it('최소 크기는 cap 의 50%(보더 요청 SOO-1049 후속)', () => {
+    // cap 이 충분히 커서 10px 하한에 걸리지 않는 경우 floor = cap * 0.5
+    expect(randomTargetPx(bubble, ratio, 0)).toBeCloseTo(cap * 0.5);
+  });
   it('모든 rnd 에서 [floor, cap] 안에 든다', () => {
     for (const rnd of [0, 0.25, 0.5, 0.75, 1, 2, -1, NaN]) {
       const v = randomTargetPx(bubble, ratio, rnd);
@@ -264,7 +268,7 @@ describe('DEFAULT_FX_SETTINGS (SOO-1049 후속 보더 요청 값)', () => {
   it('생성 간격 100ms · 성장 0.2s · 최대 비율 50%', () => {
     expect(DEFAULT_FX_SETTINGS.spawnIntervalMs).toBe(100);
     expect(DEFAULT_FX_SETTINGS.growDurationSec).toBe(0.2);
-    expect(DEFAULT_FX_SETTINGS.maxSizeRatio).toBe(0.5);
+    expect(DEFAULT_FX_SETTINGS.maxSizeRatio).toBe(1);
   });
 });
 
