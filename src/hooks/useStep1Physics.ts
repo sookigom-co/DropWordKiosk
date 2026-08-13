@@ -37,8 +37,10 @@ export interface PurpleView {
  * 세션 동안 유지되는 보라색 공 상한(성능 안전판).
  * 공은 소멸하지 않으므로(SOO-1049) 비중첩 스폰이 실질 상한을 만들지만,
  * 라즈베리파이 부하 폭주를 막기 위한 하드 캡을 둔다.
+ * 보더 요청(SOO-1049 후속)으로 화면 4/5 채움을 목표로 하므로,
+ * 면적 채움(FILL_STOP_RATIO)이 실질 상한이 되도록 하드 캡을 넉넉히 둔다.
  */
-const MAX_PURPLE = 40;
+const MAX_PURPLE = 90;
 /** 단어 원 낙하 시작 간격(ms) — 우수수 떨어지는 스태거. */
 const RELEASE_STAGGER = 110;
 /** 보라 공 시작 반지름(px). */
@@ -266,8 +268,8 @@ export function useStep1Physics(
         }
       }
 
-      // 보라 공 생성 — 낙하 완료 후에만, 빈 공간이 있고 화면이 2/3 미만일 때만.
-      // 한 틱에 2~3개를 랜덤하게 동시 생성(보더 요청).
+      // 보라 공 생성 — 낙하 완료 후에만, 빈 공간이 있고 화면이 4/5 미만일 때만.
+      // 한 틱에 3~5개를 랜덤하게 동시 생성(보더 요청 SOO-1049 후속).
       if (
         settled &&
         nowMs - lastSpawn >= settingsRef.current.spawnIntervalMs &&
@@ -277,7 +279,7 @@ export function useStep1Physics(
         let spawnedAny = false;
         for (let b = 0; b < burst; b++) {
           if (purpleSims.length >= MAX_PURPLE) break;
-          // 전체 면적의 2/3 이상 차면 신규 스폰 중단(이미 생성된 공은 유지 — 영속).
+          // 전체 면적의 4/5 이상 차면 신규 스폰 중단(이미 생성된 공은 유지 — 영속).
           if (areaFilled(collectOccupied(), width, height, FILL_STOP_RATIO)) break;
           if (trySpawnPurple(nowMs)) spawnedAny = true;
           else break; // 빈 공간 없음 → 이번 버스트 종료.
