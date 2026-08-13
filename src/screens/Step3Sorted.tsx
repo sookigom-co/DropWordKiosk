@@ -20,8 +20,8 @@ interface Props {
 }
 
 /**
- * 낱말 상자 높이(px). SOO-1061: 보더 요청으로 "현재 대비 1.5배" 확대 →
- * 공용 `WORD_BOX_SCALE`(1.5) 반영(56→84). 폭(cardWidth)·폰트·패딩·물리 바디도 동일 배율.
+ * 낱말 상자 높이(px). SOO-1061: 보더 요청으로 확대(최초 1.5배 → 후속 조정 1.3배) →
+ * 공용 `WORD_BOX_SCALE`(1.3) 반영(56→73). 폭(cardWidth)·폰트·패딩·물리 바디도 동일 배율.
  * 장식 보라 사각형(SQUARE_*)은 낱말 상자가 아니므로 대상 밖 — 크기 유지.
  */
 const CARD_H = Math.round(56 * WORD_BOX_SCALE);
@@ -46,7 +46,7 @@ function slotY(slot: number): number {
   return RELEASE_BASE - slot * RELEASE_STEP - Math.random() * RELEASE_JITTER;
 }
 
-/** 텍스트 길이로 상자 폭 추정(물리 바디와 DOM 박스 폭을 일치시킴). WORD_BOX_SCALE(1.5) 반영. */
+/** 텍스트 길이로 상자 폭 추정(물리 바디와 DOM 박스 폭을 일치시킴). WORD_BOX_SCALE(1.3) 반영. */
 function cardWidth(text: string): number {
   return Math.round((text.length * 26 + 44) * WORD_BOX_SCALE);
 }
