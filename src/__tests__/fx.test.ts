@@ -16,6 +16,7 @@ import {
   maxCirclePx,
   maxGrowRadius,
   pickSpawnPoint,
+  pickSpawnPointFull,
   purpleColor,
   randomTargetPx,
   spawnBetweenBodies,
@@ -138,6 +139,27 @@ describe('pickSpawnPoint', () => {
   it('y 는 하단 영역(45%~88%)', () => {
     expect(pickSpawnPoint(700, 500, 0.5, 0).y).toBeCloseTo(500 * 0.45);
     expect(pickSpawnPoint(700, 500, 0.5, 1).y).toBeCloseTo(500 * 0.88);
+  });
+});
+
+describe('pickSpawnPointFull (SOO-1049 후속 가득 채움)', () => {
+  it('항상 필드 내부(마진 안)에 위치', () => {
+    for (const [rx, ry] of [
+      [0, 0],
+      [0.5, 0.5],
+      [1, 1],
+      [NaN, NaN],
+    ]) {
+      const p = pickSpawnPointFull(700, 500, rx, ry, 40);
+      expect(p.x).toBeGreaterThanOrEqual(40);
+      expect(p.x).toBeLessThanOrEqual(660);
+      expect(p.y).toBeGreaterThanOrEqual(40);
+      expect(p.y).toBeLessThanOrEqual(460);
+    }
+  });
+  it('전체 필드(상단~하단)를 커버 — y 가 마진에서 height-마진까지', () => {
+    expect(pickSpawnPointFull(700, 500, 0.5, 0, 40).y).toBeCloseTo(40);
+    expect(pickSpawnPointFull(700, 500, 0.5, 1, 40).y).toBeCloseTo(460);
   });
 });
 
@@ -309,8 +331,8 @@ describe('areaFilled (SOO-1049 후속 4/5 채움 중단)', () => {
   it('면적이 임계 미만이면 false', () => {
     expect(areaFilled([{ x: 50, y: 50, r: 10 }], 100, 100, 0.5)).toBe(false);
   });
-  it('FILL_STOP_RATIO 는 4/5', () => {
-    expect(FILL_STOP_RATIO).toBeCloseTo(4 / 5);
+  it('FILL_STOP_RATIO 는 1(가득 채움 — 면적 상한 조기 중단 없음)', () => {
+    expect(FILL_STOP_RATIO).toBe(1);
   });
 });
 

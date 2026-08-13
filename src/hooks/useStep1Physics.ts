@@ -18,7 +18,7 @@ import {
   firstFreeSpawn,
   growthRadius,
   maxGrowRadius,
-  pickSpawnPoint,
+  pickSpawnPointFull,
   purpleColor,
   randomTargetPx,
   spawnBetweenBodies,
@@ -37,20 +37,23 @@ export interface PurpleView {
  * 세션 동안 유지되는 보라색 공 상한(성능 안전판).
  * 공은 소멸하지 않으므로(SOO-1049) 비중첩 스폰이 실질 상한을 만들지만,
  * 라즈베리파이 부하 폭주를 막기 위한 하드 캡을 둔다.
- * 보더 요청(SOO-1049 후속)으로 화면 4/5 채움을 목표로 하므로,
- * 면적 채움(FILL_STOP_RATIO)이 실질 상한이 되도록 하드 캡을 넉넉히 둔다.
+ * 보더 요청(SOO-1049 후속)으로 화면을 공으로 "가득 채우는" 것이 목표이므로,
+ * 비중첩 패킹(빈 공간 소진)이 실질 상한이 되도록 하드 캡을 넉넉히 둔다.
  */
-const MAX_PURPLE = 90;
+const MAX_PURPLE = 220;
 /** 단어 원 낙하 시작 간격(ms) — 우수수 떨어지는 스태거. */
 const RELEASE_STAGGER = 110;
 /** 보라 공 시작 반지름(px). */
 const PURPLE_START_R = 6;
-/** 스폰 후보 시도 횟수 — 이 횟수 안에 빈 공간을 못 찾으면 이번 스폰 건너뜀. */
-const SPAWN_TRIES = 18;
-/** 스폰 시 기존 공·단어와 유지할 최소 여유 간격(px). */
-const SPAWN_PAD = 6;
+/**
+ * 스폰 후보 시도 횟수 — 이 횟수 안에 빈 공간을 못 찾으면 이번 스폰 건너뜀.
+ * 화면이 촘촘히 찰수록 남은 틈이 작아지므로, "가득 채움"을 위해 넉넉히 시도한다.
+ */
+const SPAWN_TRIES = 40;
+/** 스폰 시 기존 공·단어와 유지할 최소 여유 간격(px, 작을수록 촘촘히 채움). */
+const SPAWN_PAD = 2;
 /** 성장 시 다른 공과 유지할 최소 여유 간격(px, 시각적 겹침 0 보장). */
-const GROW_PAD = 2;
+const GROW_PAD = 1;
 /** 정착 판정 속도 임계값(matter speed). 이 이하가 유지되면 멈춘 것으로 본다. */
 const SETTLE_SPEED = 0.4;
 /** 정착 유지 시간(ms) — 임계 이하가 이만큼 지속돼야 낙하 완료로 확정. */
@@ -203,18 +206,21 @@ export function useStep1Physics(
       const clampY = (v: number) => Math.min(height - margin, Math.max(margin, v));
       const candidates: { x: number; y: number }[] = [];
       for (let k = 0; k < SPAWN_TRIES; k++) {
-        const between =
-          wordCenters.length > 0
-            ? spawnBetweenBodies(
-                wordCenters,
-                Math.random(),
-                Math.random(),
-                Math.random(),
-                Math.random(),
-              )
-            : null;
-        // 단어 사이 지점을 우선하되, 단어가 없거나 실패하면 하단 밴드로 폴백.
-        const raw = between ?? pickSpawnPoint(width, height, Math.random(), Math.random());
+        // 보더 요청(SOO-1049 후속) "가득 채움": 필드 전체를 균일 커버하도록
+        // 절반은 전체 필드 무작위, 절반은 단어 사이 지점을 후보로 섞는다.
+        let raw: { x: number; y: number };
+        if (k % 2 === 0 || wordCenters.length === 0) {
+          raw = pickSpawnPointFull(width, height, Math.random(), Math.random());
+        } else {
+          const between = spawnBetweenBodies(
+            wordCenters,
+            Math.random(),
+            Math.random(),
+            Math.random(),
+            Math.random(),
+          );
+          raw = between ?? pickSpawnPointFull(width, height, Math.random(), Math.random());
+        }
         candidates.push({ x: clampX(raw.x), y: clampY(raw.y) });
       }
       const spot = firstFreeSpawn(candidates, PURPLE_START_R, occupied, SPAWN_PAD);
