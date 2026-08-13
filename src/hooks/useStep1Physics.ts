@@ -21,6 +21,7 @@ import {
   pickSpawnPoint,
   purpleColor,
   randomTargetPx,
+  spawnBetweenBodies,
   type Circle,
   type FxSettings,
 } from '../lib/fx';
@@ -191,9 +192,28 @@ export function useStep1Physics(
     const trySpawnPurple = (nowMs: number): boolean => {
       const s = settingsRef.current;
       const occupied = collectOccupied();
+      // 보더 요청(SOO-1049 후속): 무더기 위가 아니라 "정착한 단어 원들 사이"에서 솟아오르게.
+      const wordCenters = wordSims
+        .filter((ws) => ws.released)
+        .map((ws) => ({ x: ws.body.position.x, y: ws.body.position.y }));
+      const margin = 40;
+      const clampX = (v: number) => Math.min(width - margin, Math.max(margin, v));
+      const clampY = (v: number) => Math.min(height - margin, Math.max(margin, v));
       const candidates: { x: number; y: number }[] = [];
       for (let k = 0; k < SPAWN_TRIES; k++) {
-        candidates.push(pickSpawnPoint(width, height, Math.random(), Math.random()));
+        const between =
+          wordCenters.length > 0
+            ? spawnBetweenBodies(
+                wordCenters,
+                Math.random(),
+                Math.random(),
+                Math.random(),
+                Math.random(),
+              )
+            : null;
+        // 단어 사이 지점을 우선하되, 단어가 없거나 실패하면 하단 밴드로 폴백.
+        const raw = between ?? pickSpawnPoint(width, height, Math.random(), Math.random());
+        candidates.push({ x: clampX(raw.x), y: clampY(raw.y) });
       }
       const spot = firstFreeSpawn(candidates, PURPLE_START_R, occupied, SPAWN_PAD);
       if (!spot) return false; // 빈 공간 없음 → 이번 스폰 건너뜀.

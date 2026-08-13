@@ -135,6 +135,38 @@ export function pickSpawnPoint(
   return { x, y };
 }
 
+/**
+ * 정착한 단어 원들 "사이"에서 스폰 지점을 고른다(보더 요청 SOO-1049 후속).
+ * 서로 다른 두 단어 원을 무작위로 골라 그 중점 부근(±jitter)을 반환한다 →
+ * 공이 무더기 위가 아니라 단어들 사이에서 솟아오른다.
+ * bodies 가 비면 null(→ pickSpawnPoint 폴백). 1개면 그 원 부근을 반환.
+ * rndA·rndB 로 두 원을, jitterX·jitterY(0~1)로 중점 주변 흔들림을 결정(테스트 주입).
+ */
+export function spawnBetweenBodies(
+  bodies: readonly { x: number; y: number }[],
+  rndA: number,
+  rndB: number,
+  jitterX: number,
+  jitterY: number,
+  jitter = 24,
+): { x: number; y: number } | null {
+  const n = bodies.length;
+  if (n === 0) return null;
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+  const pick = (r: number) => Math.min(n - 1, Math.floor(clamp01(r) * n));
+  const jx = (clamp01(jitterX) - 0.5) * 2 * jitter;
+  const jy = (clamp01(jitterY) - 0.5) * 2 * jitter;
+  const i = pick(rndA);
+  if (n === 1) {
+    return { x: bodies[i].x + jx, y: bodies[i].y + jy };
+  }
+  let j = pick(rndB);
+  if (j === i) j = (i + 1) % n;
+  const a = bodies[i];
+  const b = bodies[j];
+  return { x: (a.x + b.x) / 2 + jx, y: (a.y + b.y) / 2 + jy };
+}
+
 /** 원(중심 x·y, 반지름 r) — 겹침 판정·스폰 배치 공용 표현. */
 export interface Circle {
   readonly x: number;
