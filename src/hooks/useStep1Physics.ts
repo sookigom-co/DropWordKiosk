@@ -10,8 +10,11 @@ import {
   type Step1World,
 } from '../lib/physics';
 import {
+  areaFilled,
   bodiesSettled,
+  burstCount,
   easeOutCubic,
+  FILL_STOP_RATIO,
   firstFreeSpawn,
   growthRadius,
   maxGrowRadius,
@@ -164,13 +167,10 @@ export function useStep1Physics(
     let settleSince = -1; // 속도 임계 이하 진입 시각(ms), 리셋되면 -1
 
     /**
-     * 빈 공간에 보라 공 하나 스폰 시도. 기존 공·단어와 겹치지 않는 후보를
-     * SPAWN_TRIES 번 안에 찾으면 생성하고 true, 못 찾으면 생성하지 않고 false.
-     * (false 여도 기존 공은 유지 — SOO-1049 영속 규칙.)
+     * 현재 점유 영역(기존 보라 공 + 낙하 완료된 단어 원)을 원 목록으로 수집.
+     * 비중첩 스폰·성장 상한·면적 채움 판정에 공용으로 쓴다.
      */
-    const trySpawnPurple = (nowMs: number): boolean => {
-      const s = settingsRef.current;
-      // 점유 영역: 기존 보라 공 + 낙하 완료된 단어 원.
+    const collectOccupied = (): Circle[] => {
       const occupied: Circle[] = [];
       for (const p of purpleSims) {
         occupied.push({ x: p.body.position.x, y: p.body.position.y, r: p.curR });
@@ -180,6 +180,17 @@ export function useStep1Physics(
           occupied.push({ x: ws.body.position.x, y: ws.body.position.y, r: radius });
         }
       }
+      return occupied;
+    };
+
+    /**
+     * 빈 공간에 보라 공 하나 스폰 시도. 기존 공·단어와 겹치지 않는 후보를
+     * SPAWN_TRIES 번 안에 찾으면 생성하고 true, 못 찾으면 생성하지 않고 false.
+     * (false 여도 기존 공은 유지 — SOO-1049 영속 규칙.)
+     */
+    const trySpawnPurple = (nowMs: number): boolean => {
+      const s = settingsRef.current;
+      const occupied = collectOccupied();
       const candidates: { x: number; y: number }[] = [];
       for (let k = 0; k < SPAWN_TRIES; k++) {
         candidates.push(pickSpawnPoint(width, height, Math.random(), Math.random()));
@@ -235,13 +246,23 @@ export function useStep1Physics(
         }
       }
 
-      // 보라 공 생성 — 낙하 완료 후에만, 빈 공간이 있을 때만.
+      // 보라 공 생성 — 낙하 완료 후에만, 빈 공간이 있고 화면이 2/3 미만일 때만.
+      // 한 틱에 2~3개를 랜덤하게 동시 생성(보더 요청).
       if (
         settled &&
         nowMs - lastSpawn >= settingsRef.current.spawnIntervalMs &&
         purpleSims.length < MAX_PURPLE
       ) {
-        if (trySpawnPurple(nowMs)) lastSpawn = nowMs;
+        const burst = burstCount(Math.random());
+        let spawnedAny = false;
+        for (let b = 0; b < burst; b++) {
+          if (purpleSims.length >= MAX_PURPLE) break;
+          // 전체 면적의 2/3 이상 차면 신규 스폰 중단(이미 생성된 공은 유지 — 영속).
+          if (areaFilled(collectOccupied(), width, height, FILL_STOP_RATIO)) break;
+          if (trySpawnPurple(nowMs)) spawnedAny = true;
+          else break; // 빈 공간 없음 → 이번 버스트 종료.
+        }
+        if (spawnedAny) lastSpawn = nowMs;
       }
 
       // 보라 공 성장(영속 — 수축·제거 없음). 다른 공과 겹치면 성장 정지.
