@@ -246,16 +246,19 @@ export function firstFreeSpawn(
 /**
  * 화면이 이 비율 이상 차면 신규 보라 공 생성을 멈춘다(SOO-1049 후속, 보더 요청 "2/3").
  * 이미 생성된 공은 유지(영속) — 스폰만 중단.
+ * 보더 요청(SOO-1049 후속): 화면 4/5(80%)까지 채운다.
  */
-export const FILL_STOP_RATIO = 2 / 3;
+export const FILL_STOP_RATIO = 4 / 5;
 
 /**
- * 한 번의 스폰 틱에서 동시에 생성할 공 개수(2~3개 랜덤, 보더 요청).
- * rnd 는 0~1 난수(테스트 시 주입) — 0.5 미만이면 2개, 이상이면 3개.
+ * 한 번의 스폰 틱에서 동시에 생성할 공 개수(3~5개 랜덤, 보더 요청 SOO-1049 후속).
+ * rnd 는 0~1 난수(테스트 시 주입) — 1/3 미만이면 3개, 2/3 미만이면 4개, 이상이면 5개.
  */
 export function burstCount(rnd: number): number {
   const t = Math.min(1, Math.max(0, Number.isFinite(rnd) ? rnd : 0));
-  return t < 0.5 ? 2 : 3;
+  if (t < 1 / 3) return 3;
+  if (t < 2 / 3) return 4;
+  return 5;
 }
 
 /** 원들이 차지하는 총 면적(π·r² 합). 겹침은 무시(비중첩 배치 전제). */

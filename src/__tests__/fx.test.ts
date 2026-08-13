@@ -272,16 +272,18 @@ describe('DEFAULT_FX_SETTINGS (SOO-1049 후속 보더 요청 값)', () => {
   });
 });
 
-describe('burstCount (SOO-1049 후속 2~3개 동시 생성)', () => {
-  it('rnd < 0.5 는 2개, 이상은 3개', () => {
-    expect(burstCount(0)).toBe(2);
-    expect(burstCount(0.49)).toBe(2);
-    expect(burstCount(0.5)).toBe(3);
-    expect(burstCount(1)).toBe(3);
+describe('burstCount (SOO-1049 후속 3~5개 동시 생성)', () => {
+  it('rnd 3분할로 3·4·5개', () => {
+    expect(burstCount(0)).toBe(3);
+    expect(burstCount(0.32)).toBe(3);
+    expect(burstCount(1 / 3)).toBe(4);
+    expect(burstCount(0.65)).toBe(4);
+    expect(burstCount(2 / 3)).toBe(5);
+    expect(burstCount(1)).toBe(5);
   });
-  it('항상 2 또는 3(범위 밖·NaN 안전화)', () => {
+  it('항상 3·4·5(범위 밖·NaN 안전화)', () => {
     for (const v of [-1, 2, NaN, Infinity]) {
-      expect([2, 3]).toContain(burstCount(v));
+      expect([3, 4, 5]).toContain(burstCount(v));
     }
   });
 });
@@ -299,7 +301,7 @@ describe('circlesArea', () => {
   });
 });
 
-describe('areaFilled (SOO-1049 후속 2/3 채움 중단)', () => {
+describe('areaFilled (SOO-1049 후속 4/5 채움 중단)', () => {
   it('면적이 임계 이상이면 true', () => {
     // 필드 100x100 = 10000, 임계 0.5 → 5000. r≈40 → π·1600≈5026 ≥ 5000
     expect(areaFilled([{ x: 50, y: 50, r: 40 }], 100, 100, 0.5)).toBe(true);
@@ -307,8 +309,8 @@ describe('areaFilled (SOO-1049 후속 2/3 채움 중단)', () => {
   it('면적이 임계 미만이면 false', () => {
     expect(areaFilled([{ x: 50, y: 50, r: 10 }], 100, 100, 0.5)).toBe(false);
   });
-  it('FILL_STOP_RATIO 는 2/3', () => {
-    expect(FILL_STOP_RATIO).toBeCloseTo(2 / 3);
+  it('FILL_STOP_RATIO 는 4/5', () => {
+    expect(FILL_STOP_RATIO).toBeCloseTo(4 / 5);
   });
 });
 
