@@ -21,6 +21,7 @@ import {
   pickSpawnPointBand,
   purpleColor,
   randomTargetPx,
+  referenceBubblePx,
   spawnBetweenBodies,
   type Circle,
   type FxSettings,
@@ -145,7 +146,7 @@ export function useStep1Physics(
 
     // 단어 원 실측 반지름(첫 버튼 기준).
     const firstEl = bubbleEls.current.values().next().value as HTMLButtonElement | undefined;
-    const bubblePx = firstEl?.offsetWidth || Math.min(132, width * 0.2);
+    const bubblePx = firstEl?.offsetWidth || referenceBubblePx(width);
     const radius = bubblePx / 2;
 
     const world: Step1World = createStep1World(width, height, settingsRef.current.gravity);

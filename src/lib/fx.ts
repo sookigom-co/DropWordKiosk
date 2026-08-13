@@ -93,6 +93,33 @@ export function randomTargetPx(bubblePx: number, ratio: number, rnd: number): nu
   return floor + (cap - floor) * t;
 }
 
+/**
+ * 참조 단어 원 지름(px). Step1 물리 훅이 실제 DOM 원을 못 잴 때 쓰는 폴백 스케일이며,
+ * Step2 낙하 도형이 "Step1 보라 원과 같은 스케일 대역"을 참조할 때도 이 값을 기준으로 삼는다.
+ * (매직 넘버 중복 방지 — SOO-1054.)
+ */
+export const REFERENCE_BUBBLE_CAP_PX = 132;
+export const REFERENCE_BUBBLE_WIDTH_RATIO = 0.2;
+
+/** 화면 폭 기준 참조 단어 원 지름(px). 폭이 클수록 최대 REFERENCE_BUBBLE_CAP_PX 로 캡. */
+export function referenceBubblePx(width: number): number {
+  return Math.min(REFERENCE_BUBBLE_CAP_PX, Math.max(0, width) * REFERENCE_BUBBLE_WIDTH_RATIO);
+}
+
+/**
+ * Step1 보라색 원과 동일한 스케일 대역에서 샘플링한 랜덤 반지름(px)(SOO-1054).
+ * randomTargetPx(=보라 원 목표 지름: 참조 지름의 50%~100%)를 그대로 재사용해 지름을 얻고 /2.
+ * ratio 기본값은 Step1 기본 설정(maxSizeRatio)과 동일 → 매직 넘버 중복 없이 같은 대역 보장.
+ * rnd 는 0~1 난수(테스트 주입).
+ */
+export function purpleScaleRadius(
+  bubblePx: number,
+  rnd: number,
+  ratio: number = DEFAULT_FX_SETTINGS.maxSizeRatio,
+): number {
+  return randomTargetPx(bubblePx, ratio, rnd) / 2;
+}
+
 /** easeOutCubic — 성장이 처음엔 빠르고 끝에서 느려지는 곡선. */
 export function easeOutCubic(t: number): number {
   const x = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0));
