@@ -13,6 +13,7 @@ import {
   easeOutCubic,
   firstFreeSpawn,
   growthRadius,
+  interleavedReleaseSlots,
   maxCirclePx,
   maxGrowRadius,
   pickSpawnPoint,
@@ -378,6 +379,46 @@ describe('referenceBubblePx (SOO-1054 공용 참조 지름)', () => {
   });
   it('음수 폭은 0', () => {
     expect(referenceBubblePx(-100)).toBe(0);
+  });
+});
+
+describe('interleavedReleaseSlots (SOO-1054 후속 — 카드·원 균등 교차 낙하)', () => {
+  it('circleCount<=0 이면 빈 배열', () => {
+    expect(interleavedReleaseSlots(21, 0)).toEqual([]);
+    expect(interleavedReleaseSlots(21, -3)).toEqual([]);
+  });
+  it('원 개수만큼 슬롯을 반환하고 오름차순·중복 없음·범위 내', () => {
+    const cards = 21;
+    const circles = 12;
+    const slots = interleavedReleaseSlots(cards, circles);
+    expect(slots).toHaveLength(circles);
+    // 오름차순
+    expect([...slots].sort((a, b) => a - b)).toEqual(slots);
+    // 중복 없음
+    expect(new Set(slots).size).toBe(circles);
+    // 0..total-1 범위
+    for (const s of slots) {
+      expect(s).toBeGreaterThanOrEqual(0);
+      expect(s).toBeLessThan(cards + circles);
+    }
+  });
+  it('원이 처음부터 끝까지 균등 분산됨(앞쪽에만 몰리지 않음)', () => {
+    const total = 33;
+    const slots = interleavedReleaseSlots(21, 12);
+    // 첫 원은 전반부, 마지막 원은 후반부에 위치 → 원이 먼저 뭉쳐 떨어지지 않음
+    expect(slots[0]).toBeLessThan(total / 2);
+    expect(slots[slots.length - 1]).toBeGreaterThan(total / 2);
+  });
+  it('카드 슬롯(여집합)과 원 슬롯이 0..total-1 를 정확히 덮음', () => {
+    const cards = 21;
+    const circles = 12;
+    const total = cards + circles;
+    const circleSet = new Set(interleavedReleaseSlots(cards, circles));
+    const cardSlots: number[] = [];
+    for (let s = 0; cardSlots.length < cards; s++) if (!circleSet.has(s)) cardSlots.push(s);
+    const all = new Set([...circleSet, ...cardSlots]);
+    expect(all.size).toBe(total);
+    for (let s = 0; s < total; s++) expect(all.has(s)).toBe(true);
   });
 });
 

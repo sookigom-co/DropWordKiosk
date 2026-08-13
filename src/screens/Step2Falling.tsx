@@ -3,7 +3,7 @@ import Matter from 'matter-js';
 import { ScreenFrame } from '../components/ScreenFrame';
 import { NextButton } from '../components/NextButton';
 import { ADJECTIVES } from '../data/words';
-import { purpleScaleRadius, referenceBubblePx } from '../lib/fx';
+import { purpleScaleRadius, referenceBubblePx, interleavedReleaseSlots } from '../lib/fx';
 
 interface Props {
   selectedId: string | null;
@@ -24,6 +24,19 @@ const PARTICLE_COUNT = 12;
  */
 const INIT_ANGLE_RANGE = 0.12;
 const INIT_ANGULAR_VELOCITY = 0.012;
+/**
+ * 낙하 릴리즈 밴드(SOO-1054 후속 — 보더 요청 "카드·원이 더 고르게 떨어지게").
+ * 카드와 원을 하나의 공통 릴리즈 순서(슬롯) 위에 균등 교차 배치한다.
+ * 이전엔 원이 카드보다 아래(-60 vs -80)에서 촘촘히 시작해 먼저 뭉쳐 진입했다.
+ */
+const RELEASE_BASE = -80;
+const RELEASE_STEP = 40;
+const RELEASE_JITTER = 24;
+
+/** 슬롯 인덱스 → 초기 y(위쪽 밖). 슬롯이 클수록 더 위(늦게 진입). */
+function slotY(slot: number): number {
+  return RELEASE_BASE - slot * RELEASE_STEP - Math.random() * RELEASE_JITTER;
+}
 
 /** 텍스트 길이로 카드 폭 추정(물리 바디와 DOM 카드 폭을 일치시킴). CARD_SCALE 반영. */
 function cardWidth(text: string): number {
@@ -77,11 +90,20 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
     const right = Matter.Bodies.rectangle(W + WALL / 2, H / 2, WALL, H * 2, { isStatic: true });
     Matter.Composite.add(world, [floor, left, right]);
 
+    // 카드·원을 하나의 릴리즈 순서에 균등 교차 배치(SOO-1054 후속).
+    // 원이 배정받은 슬롯을 제외한 나머지 슬롯을 카드가 순서대로 차지한다.
+    const circleSlotSet = new Set(interleavedReleaseSlots(ADJECTIVES.length, PARTICLE_COUNT));
+    const cardSlots: number[] = [];
+    for (let s = 0; cardSlots.length < ADJECTIVES.length; s++) {
+      if (!circleSlotSet.has(s)) cardSlots.push(s);
+    }
+    const circleSlots = [...circleSlotSet].sort((a, b) => a - b);
+
     // 카드 바디 생성 (초기엔 화면 위쪽 밖에 배치했다가 순차 낙하 느낌)
     const cards: CardRef[] = ADJECTIVES.map((adj, i) => {
       const w = cardWidth(adj.text);
       const x = clamp(40 + Math.random() * (W - 80), w / 2, W - w / 2);
-      const y = -80 - i * 46 - Math.random() * 40; // 위쪽 밖, 편차
+      const y = slotY(cardSlots[i]); // 위쪽 밖, 공통 릴리즈 밴드
       const body = Matter.Bodies.rectangle(x, y, w, CARD_H, {
         restitution: 0.35,
         friction: 0.35,
@@ -103,13 +125,14 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
     const particles: ParticleRef[] = Array.from({ length: PARTICLE_COUNT }, (_, i) => {
       const r = purpleScaleRadius(refBubble, Math.random()) * CIRCLE_SCALE;
       const x = clamp(40 + Math.random() * (W - 80), r, W - r);
-      const y = -60 - i * 30 - Math.random() * 60;
+      const y = slotY(circleSlots[i]); // 카드와 동일한 공통 릴리즈 밴드(교차 배치)
       const body = Matter.Bodies.circle(x, y, r, {
         restitution: 0.6,
         friction: 0.2,
         frictionAir: 0.01,
       });
-      Matter.Body.setVelocity(body, { x: (Math.random() - 0.5) * 3, y: 1 });
+      // 카드와 비슷한 초기 하강 속도로 맞춰 원만 먼저 앞서 떨어지지 않게 함
+      Matter.Body.setVelocity(body, { x: (Math.random() - 0.5) * 2, y: 1 + Math.random() * 2 });
       return { r, body, el: null };
     });
     Matter.Composite.add(
