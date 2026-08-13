@@ -138,6 +138,28 @@ export function pickSpawnPoint(
 }
 
 /**
+ * 필드 "전체"에서 스폰 지점을 고른다(보더 요청 SOO-1049 후속 "가득 채움").
+ * 하단 밴드에 국한하지 않고 마진 안쪽 전 영역을 균일 커버해, 비중첩 패킹이
+ * 화면 전체를 공으로 가득 채우도록 한다. rndX·rndY 는 0~1 난수(테스트 주입).
+ */
+export function pickSpawnPointFull(
+  width: number,
+  height: number,
+  rndX: number,
+  rndY: number,
+  margin = 40,
+): { x: number; y: number } {
+  const w = Math.max(0, width);
+  const h = Math.max(0, height);
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+  const mx = Math.min(margin, w / 2);
+  const my = Math.min(margin, h / 2);
+  const x = mx + clamp01(rndX) * Math.max(0, w - mx * 2);
+  const y = my + clamp01(rndY) * Math.max(0, h - my * 2);
+  return { x, y };
+}
+
+/**
  * 정착한 단어 원들 "사이"에서 스폰 지점을 고른다(보더 요청 SOO-1049 후속).
  * 서로 다른 두 단어 원을 무작위로 골라 그 중점 부근(±jitter)을 반환한다 →
  * 공이 무더기 위가 아니라 단어들 사이에서 솟아오른다.
@@ -244,11 +266,14 @@ export function firstFreeSpawn(
 }
 
 /**
- * 화면이 이 비율 이상 차면 신규 보라 공 생성을 멈춘다(SOO-1049 후속, 보더 요청 "2/3").
+ * 화면이 이 비율 이상 차면 신규 보라 공 생성을 멈춘다(SOO-1049 후속).
  * 이미 생성된 공은 유지(영속) — 스폰만 중단.
- * 보더 요청(SOO-1049 후속): 화면 4/5(80%)까지 채운다.
+ * 보더 요청 변천: "2/3" → "4/5" → **"가득 채움"**(현재).
+ * 1.0(=100%)로 두어 면적 상한이 조기 중단하지 않게 하고, 실질 상한은
+ * 비중첩 패킹(빈 공간 소진)이 되도록 한다 — 즉 화면이 공으로 가득 찰 때까지 생성.
+ * (비중첩 원들의 총 면적은 필드 면적을 넘을 수 없으므로 이 값은 안전한 상한 역할만.)
  */
-export const FILL_STOP_RATIO = 4 / 5;
+export const FILL_STOP_RATIO = 1;
 
 /**
  * 한 번의 스폰 틱에서 동시에 생성할 공 개수(3~5개 랜덤, 보더 요청 SOO-1049 후속).
