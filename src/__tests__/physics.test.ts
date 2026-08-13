@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createStep1World,
   makeWordBody,
+  makeBoxBody,
   makePurpleBody,
   addBody,
   setCircleRadius,
@@ -63,5 +64,44 @@ describe('물리 — 보라 공 성장이 단어 원을 밀어 올린다', () =>
 
     // 밀어 올려져 안착 높이보다 위(y 감소)로 이동.
     expect(word.position.y).toBeLessThan(restY - 5);
+  });
+});
+
+describe('사각형 상자 — 회전 금지 낙하·적재(SOO-1056)', () => {
+  const BW = 140;
+  const BH = 56;
+
+  it('inertia 가 무한대로 고정되어 회전 관성이 0 이다', () => {
+    const box = makeBoxBody(100, 50, BW, BH);
+    expect(box.inertia).toBe(Infinity);
+    expect(box.inverseInertia).toBe(0);
+    expect(box.angle).toBe(0);
+  });
+
+  it('상단에서 떨어져 회전 없이 바닥에 안착한다', () => {
+    const world = createStep1World(W, H, 1);
+    const box = makeBoxBody(W / 2, -BH, BW, BH);
+    addBody(world, box);
+    run(world, 240);
+
+    // 각도 0 고정(회전 없음).
+    expect(Math.abs(box.angle)).toBeLessThan(1e-9);
+    // 바닥 위에 안착 — 상자 하단이 바닥을 관통하지 않는다.
+    expect(box.position.y).toBeGreaterThan(H / 2);
+    expect(box.position.y + BH / 2).toBeLessThanOrEqual(H + 2);
+  });
+
+  it('비대칭으로 충돌해도 상자가 회전하지 않는다(차곡차곡 적재)', () => {
+    const world = createStep1World(W, H, 1);
+    // 아래 상자 위 가장자리에 위 상자를 살짝 어긋나게 떨어뜨림.
+    const bottom = makeBoxBody(W / 2, H - BH / 2, BW, BH);
+    const top = makeBoxBody(W / 2 + BW / 3, -BH, BW, BH);
+    addBody(world, bottom);
+    addBody(world, top);
+    run(world, 240);
+
+    // 두 상자 모두 각도 0 유지 — 어긋난 충돌에도 기울지 않는다.
+    expect(Math.abs(bottom.angle)).toBeLessThan(1e-9);
+    expect(Math.abs(top.angle)).toBeLessThan(1e-9);
   });
 });
