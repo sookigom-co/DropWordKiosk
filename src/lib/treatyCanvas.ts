@@ -1,5 +1,7 @@
 // 협정문 캔버스 렌더링 → PNG(흑백).
-// 폭 640px(SMK3S 80mm / 640dot) 고정, 높이는 내용에 따라 가변.
+// 폭 576px(SMK3S 80mm 헤드의 실제 인쇄 가능 폭 = 72mm / 576dot) 고정, 높이는 내용에 따라 가변.
+//   - 과거 640dot 은 헤드 밖으로 오른쪽 ~64dot(≈8mm)이 잘려 나가는 문제가 있었다(SOO-1065).
+//   - 실기기 인쇄 가능 폭이 다를 경우 재빌드 없이 VITE_PRINT_WIDTH 로 재정의한다.
 // 로고는 디자인 자산 미확보 → 텍스트 플레이스홀더로 렌더(README 교체 지점 참조).
 
 import {
@@ -10,11 +12,22 @@ import {
   formatTreatyFooterDate,
 } from '../data/treaty';
 
-export const PRINT_WIDTH = 640;
+/** 인쇄 PNG 기본 폭(dot). SMK3S(80mm) 헤드의 실제 인쇄 가능 폭 = 576dot(72mm). */
+export const DEFAULT_PRINT_WIDTH = 576;
+
+/** VITE_PRINT_WIDTH(빌드타임, 양의 정수) 재정의를 파싱한다. 미지정·부정값이면 기본값. */
+export function resolvePrintWidth(raw: string | undefined): number {
+  if (raw === undefined || raw === '') return DEFAULT_PRINT_WIDTH;
+  const n = Number.parseInt(raw, 10);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_PRINT_WIDTH;
+}
+
+export const PRINT_WIDTH = resolvePrintWidth(import.meta.env.VITE_PRINT_WIDTH);
 
 const FONT_FAMILY = "'Gowun Dodum', sans-serif";
-const MARGIN_X = 48;
-const CONTENT_WIDTH = PRINT_WIDTH - MARGIN_X * 2;
+// 폭 축소(640→576)로 좌우 여백을 48→40 으로 줄여 콘텐츠 폭(496px)의 가독성을 유지한다.
+const MARGIN_X = 40;
+export const CONTENT_WIDTH = PRINT_WIDTH - MARGIN_X * 2;
 
 interface Line {
   text: string;
@@ -24,14 +37,21 @@ interface Line {
   gapAfter: number;
 }
 
-/** 캔버스 컨텍스트로 텍스트를 CONTENT_WIDTH 안에서 줄바꿈한다. */
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+/**
+ * 순수 줄바꿈 로직 — 문자열 폭 측정 함수(measure)를 주입받아 maxWidth 안에서 분할한다.
+ * 캔버스 없이 단위 테스트 가능하도록 측정 방식을 분리했다.
+ */
+export function wrapTextByMeasure(
+  measure: (text: string) => number,
+  text: string,
+  maxWidth: number,
+): string[] {
   const chars = [...text];
   const lines: string[] = [];
   let current = '';
   for (const ch of chars) {
     const test = current + ch;
-    if (ctx.measureText(test).width > maxWidth && current !== '') {
+    if (measure(test) > maxWidth && current !== '') {
       lines.push(current);
       current = ch;
     } else {
@@ -40,6 +60,11 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   }
   if (current !== '') lines.push(current);
   return lines.length > 0 ? lines : [''];
+}
+
+/** 캔버스 컨텍스트로 텍스트를 CONTENT_WIDTH 안에서 줄바꿈한다. */
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  return wrapTextByMeasure((t) => ctx.measureText(t).width, text, maxWidth);
 }
 
 /**
