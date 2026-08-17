@@ -1,3 +1,4 @@
+@import './assets/fonts/pretendard.css';
 @import './assets/fonts/gowun-dodum.css';
 
 /* ── 디자인 토큰 ────────────────────────────────────────────────
@@ -21,7 +22,9 @@
   --next-h: 96px; /* 하단 고정 NEXT 바 높이(로고 상단 바와 대칭) */
   --edge-gap: 50px; /* 전 페이지 공통: 로고 위·Next 아래 여백(SOO-1084) */
 
-  font-family: 'Gowun Dodum', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
+  /* 전역 폰트: Pretendard 최우선. 오프라인 폴백으로 Gowun Dodum(로컬 번들) → 시스템 폰트 순. */
+  font-family: 'Pretendard', 'Gowun Dodum', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui,
+    sans-serif;
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
