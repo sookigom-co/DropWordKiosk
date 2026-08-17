@@ -19,6 +19,7 @@
   --touch-min: 44px; /* 최소 터치 타깃 */
   --logo-h: 84px;
   --next-h: 96px; /* 하단 고정 NEXT 바 높이(로고 상단 바와 대칭) */
+  --edge-gap: 50px; /* 전 페이지 공통: 로고 위·Next 아래 여백(SOO-1084) */
 
   font-family: 'Gowun Dodum', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
   color: var(--ink);
@@ -56,6 +57,8 @@ button {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  /* 전 페이지 공통: 로고(헤더) 위 50px 여백(SOO-1084) */
+  padding-top: var(--edge-gap);
 }
 
 .kiosk-logo {
@@ -66,7 +69,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid var(--line);
+  /* 헤더 구분선 제거(SOO-1084) */
   background: var(--bg);
 }
 .kiosk-logo__img {
@@ -85,8 +88,8 @@ button {
   align-items: center;
   justify-content: center;
   gap: 28px;
-  /* 하단 고정 NEXT 바(--next-h)와 겹치지 않도록 하단 여백을 확보한다. */
-  padding: 24px clamp(16px, 4vw, 48px) calc(var(--next-h) + 8px);
+  /* 하단 고정 NEXT 바(--next-h)와 그 아래 여백(--edge-gap)을 겹치지 않도록 확보한다(SOO-1084). */
+  padding: 24px clamp(16px, 4vw, 48px) calc(var(--next-h) + var(--edge-gap) + 8px);
   text-align: center;
   position: relative;
 }
@@ -127,14 +130,14 @@ button {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* 전 페이지 공통: Next 버튼 아래 50px 여백(SOO-1084) */
+  bottom: calc(var(--edge-gap) + env(safe-area-inset-bottom, 0));
   z-index: 10;
   height: var(--next-h);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-bottom: env(safe-area-inset-bottom, 0);
-  border-top: 1px solid var(--line);
+  /* 푸터 구분선 제거(SOO-1084) */
   background: var(--bg);
 }
 .btn-next {
