@@ -7,11 +7,14 @@ import {
   addBody,
   addCeiling,
   clampBodyToStage,
+  clampBodyAngle,
   setCircleRadius,
   stepEngine,
+  MAX_WORD_ANGLE,
   WORD_DENSITY,
   BUBBLE_DENSITY,
 } from '../lib/physics';
+import Matter from 'matter-js';
 import { buoyancyForce } from '../lib/fx';
 
 const W = 700;
@@ -270,5 +273,44 @@ describe('clampBodyToStage — 화면 이탈 절대 금지(SOO-1088)', () => {
     expect(b.position.y).toBeLessThanOrEqual(SH - r + 1e-6);
     expect(b.position.x).toBeGreaterThanOrEqual(r - 1e-6);
     expect(b.position.x).toBeLessThanOrEqual(SW - r + 1e-6);
+  });
+});
+
+describe('clampBodyAngle — 문자 회전 ±45° 제한(SOO-1092)', () => {
+  it('강한 각속도로 계속 회전시켜도 각도가 ±45° 를 넘지 않는다(단어 원)', () => {
+    const world = createStep1World(W, H, 1);
+    const body = makeWordBody(W / 2, H / 2, R);
+    addBody(world, body);
+    for (let i = 0; i < 300; i++) {
+      // 매 틱 큰 각속도를 실어 계속 회전시키려 시도.
+      Matter.Body.setAngularVelocity(body, 0.5);
+      stepEngine(world, 16);
+      clampBodyAngle(body);
+      expect(Math.abs(body.angle)).toBeLessThanOrEqual(MAX_WORD_ANGLE + 1e-6);
+    }
+  });
+
+  it('경계 이내(소각도)면 각도를 건드리지 않는다(clamped=false, 기존 거동 유지)', () => {
+    const world = createStep1World(W, H, 1);
+    const body = makeWordBody(W / 2, H / 2, R);
+    Matter.Body.setAngle(body, 0.2); // < 45°
+    addBody(world, body);
+    const changed = clampBodyAngle(body);
+    expect(changed).toBe(false);
+    expect(body.angle).toBeCloseTo(0.2);
+  });
+
+  it('사각형 낱말 상자도 ±45° 안으로 유지된다(Step2)', () => {
+    const world = createStep1World(W, H, 1);
+    const box = makeBoxBody(W / 2, H / 2, 120, 52);
+    // makeBoxBody 는 inertia=Infinity(비회전)이므로 회전 테스트 위해 유한 관성으로 되돌린다.
+    Matter.Body.setInertia(box, 1000);
+    addBody(world, box);
+    for (let i = 0; i < 200; i++) {
+      Matter.Body.setAngularVelocity(box, -0.5);
+      stepEngine(world, 16);
+      clampBodyAngle(box);
+      expect(Math.abs(box.angle)).toBeLessThanOrEqual(MAX_WORD_ANGLE + 1e-6);
+    }
   });
 });

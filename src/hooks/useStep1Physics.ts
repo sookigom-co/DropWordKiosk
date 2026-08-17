@@ -6,6 +6,7 @@ import {
   addBody,
   addCeiling,
   clampBodyToStage,
+  clampBodyAngle,
   setCircleRadius,
   stepEngine,
   bodyCenter,
@@ -313,7 +314,12 @@ export function useStep1Physics(
         clampBodyToStage(p.body, width, height, true);
       }
       for (const sim of wordSims) {
-        if (sim.released) clampBodyToStage(sim.body, width, height, settled);
+        if (sim.released) {
+          clampBodyToStage(sim.body, width, height, settled);
+          // 문자 회전 ±45° 제한(SOO-1092). 단어 원은 원형이라 회전이 충돌에 영향 없음 →
+          // 순수 시각적 클램프(거동 회귀 없음). 보라 버블은 문자가 없어 제외.
+          clampBodyAngle(sim.body);
+        }
       }
 
       // 정착 판정: 모든 단어가 방출되고 전 속도가 임계 이하로 SETTLE_HOLD_MS 유지.

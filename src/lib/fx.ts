@@ -433,6 +433,36 @@ export function clampToStage(
   return { x, y, clampedX: x !== cx, clampedY: y !== cy };
 }
 
+/** 회전각 클램프 결과(SOO-1092). 각도·각속도 보정값과 실제 클램프 여부를 함께 반환. */
+export interface AngleClamp {
+  readonly angle: number;
+  readonly angularVelocity: number;
+  readonly clamped: boolean;
+}
+
+/**
+ * 바디 회전각을 [-limit, +limit] 안으로 클램프(SOO-1092).
+ *
+ * matter-js 강체가 낙하·충돌·구름 과정에서 문자(단어)가 limit(기본 ±45°) 이상 기울지
+ * 않도록, 매 틱 stepEngine 이후 각도를 경계로 되돌린다. 이때 "바깥으로 미는" 각속도만
+ * 0 으로 눌러(경계에 붙어 계속 밀어붙이지 못하게) 하고, 안쪽(0 을 향해 회복)으로 도는
+ * 각속도는 그대로 살려 급격한 스냅 없이 자연스럽게 경계에서 되돌아오게 한다.
+ * (clampToStage 위치 클램프와 동형 패턴 — 위치 대신 각도, 속도 대신 각속도.)
+ *
+ * limit 이내면 각도·각속도를 그대로 통과(clamped=false)시켜 기존 물리 거동(작은 기울임·
+ * 흔들림)은 체감상 그대로 유지된다. 비유한 입력은 0 으로 안전화.
+ */
+export function clampAngle(angle: number, angularVelocity: number, limit: number): AngleClamp {
+  const a = Number.isFinite(angle) ? angle : 0;
+  const av = Number.isFinite(angularVelocity) ? angularVelocity : 0;
+  const lim = Math.abs(Number.isFinite(limit) ? limit : 0);
+  // +경계 초과: 각도를 +lim 으로, 바깥(양수=계속 +방향)으로 미는 각속도만 제거.
+  if (a > lim) return { angle: lim, angularVelocity: Math.min(0, av), clamped: true };
+  // −경계 초과: 각도를 −lim 으로, 바깥(음수=계속 −방향)으로 미는 각속도만 제거.
+  if (a < -lim) return { angle: -lim, angularVelocity: Math.max(0, av), clamped: true };
+  return { angle: a, angularVelocity: av, clamped: false };
+}
+
 /**
  * 부력(위로 뜨는 힘, SOO-1057) — matter 가 매 스텝 body.force.y 에 더하는 중력
  * (mass·gravityY·gravityScale)을 factor 배로 되갚아 상쇄·역전한다.

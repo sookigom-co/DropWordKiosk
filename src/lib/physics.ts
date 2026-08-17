@@ -9,7 +9,7 @@
  * 좌표는 필드(bubble-field) 좌상단 기준 px. y 는 아래로 증가.
  */
 import Matter from 'matter-js';
-import { clampToStage } from './fx';
+import { clampToStage, clampAngle } from './fx';
 
 const { Engine, Bodies, Composite, Body } = Matter;
 
@@ -174,6 +174,34 @@ export function setCircleRadius(body: Matter.Body, targetRadius: number): void {
   const s = next / cur;
   if (Math.abs(s - 1) < 1e-3) return;
   Body.scale(body, s, s);
+}
+
+/**
+ * 단어(문자) 최대 기울기 각도(SOO-1092) — ±45°(π/4 rad).
+ * 보더 요청(SOO-1091): Step1·Step2 에서 문자가 45° 이상 회전하지 않게 한다.
+ */
+export const MAX_WORD_ANGLE = Math.PI / 4;
+
+/**
+ * 동적 강체의 회전각을 ±limit(기본 MAX_WORD_ANGLE=45°) 안으로 강제 클램프(SOO-1092).
+ *
+ * 매 틱 stepEngine 이후 호출한다. 각도가 경계를 넘으면 `Body.setAngle` 로 되돌리고,
+ * 바깥으로 미는 각속도만 `Body.setAngularVelocity` 로 제거해(안쪽 회복 각속도는 유지)
+ * 급격한 스냅 없이 자연스럽게 경계에서 되돌아오게 한다. 경계 이내면 아무것도 하지 않아
+ * 기존 물리 거동(작은 기울임)은 그대로 유지된다.
+ *
+ * Step1 단어 원은 회전이 충돌 형상에 영향을 주지 않으므로(원형) 이 클램프는 순수하게
+ * 시각적(문자 기울기)이라 물리 거동 회귀가 없다. Step2 낱말 상자(사각형)는 각도가 충돌
+ * 형상에 영향을 주지만, 45° 이내로만 유지될 뿐 낙하·적재 거동 자체는 바뀌지 않는다.
+ *
+ * @returns 각도를 실제로 보정했으면 true.
+ */
+export function clampBodyAngle(body: Matter.Body, limit = MAX_WORD_ANGLE): boolean {
+  const c = clampAngle(body.angle, body.angularVelocity, limit);
+  if (!c.clamped) return false;
+  Body.setAngle(body, c.angle);
+  Body.setAngularVelocity(body, c.angularVelocity);
+  return true;
 }
 
 /** 엔진을 dtMs(밀리초)만큼 전진. 큰 프레임 간격은 상한을 둬 폭주 방지. */
