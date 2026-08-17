@@ -1,0 +1,12 @@
+/* Pretendard — 오프라인 번들(self-host) 가변 폰트.
+   원본: https://github.com/orioncactus/pretendard (v1.3.9), SIL Open Font License 1.1.
+   라이선스 전문: ./Pretendard-OFL.txt (내재화 배포 허용).
+   키오스크는 완전 오프라인 환경이라 외부 원격 호스팅 없이 상대경로 로컬 자산만 사용한다.
+   가변 폰트 1파일로 전 weight(45~920)를 커버한다. */
+@font-face {
+  font-family: 'Pretendard';
+  font-style: normal;
+  font-weight: 45 920;
+  font-display: swap;
+  src: url('./PretendardVariable.woff2') format('woff2-variations');
+}

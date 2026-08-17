@@ -110,20 +110,24 @@ http://<kiosk-ip>:8080/?agent=http://<kiosk-ip>:8737
 
 ## 폰트 (오프라인 번들)
 
-외부 CDN·원격 폰트 로드를 금지하므로 **Gowun Dodum(고운돋움)** 을 서브셋해 리포에 번들한다.
+외부 원격 폰트 로드를 금지하므로(완전 오프라인 키오스크) 폰트 파일을 리포에 self-host(내재화)한다.
+전역 폰트 스택 최상위는 **Pretendard**, 오프라인 폴백으로 **Gowun Dodum(고운돋움)** → 시스템 폰트 순이다.
+Step1~3 화면·협정문 화면·서명부·인쇄(PNG canvas) 경로까지 동일하게 Pretendard 로 렌더된다.
 
-- 커밋 자산: `src/assets/fonts/GowunDodum-subset.woff2` (앱에서 쓰는 글자만, 약 44KB)
-- 원본(약 7MB ttf)은 커밋하지 않는다.
+- Pretendard(전역 기본): `src/assets/fonts/PretendardVariable.woff2` (가변 폰트 1파일, 약 2.0MB, weight 45~920 커버)
+  - `@font-face`: `src/assets/fonts/pretendard.css` — 상대경로 URL + `font-display: swap`
+  - 라이선스 전문: `src/assets/fonts/Pretendard-OFL.txt`
+  - 원본: [orioncactus/pretendard](https://github.com/orioncactus/pretendard) v1.3.9, SIL OFL 1.1
+- Gowun Dodum(폴백): `src/assets/fonts/GowunDodum-subset.woff2` (앱에서 쓰는 글자만, 약 44KB)
+  - 원본(약 7MB ttf)은 커밋하지 않는다. 콘텐츠를 바꾸면 서브셋을 다시 생성한다:
 
-콘텐츠(단어/협정문/UI 문구)를 바꾸면 서브셋을 다시 생성한다:
+    ```bash
+    curl -L -o scripts/GowunDodum-source.ttf \
+      "https://fonts.gstatic.com/s/gowundodum/v12/3Jn5SD_00GqwlBnWc1TUJF0F.ttf"
+    npm run subset-font   # → src/assets/fonts/GowunDodum-subset.woff2 재생성
+    ```
 
-```bash
-curl -L -o scripts/GowunDodum-source.ttf \
-  "https://fonts.gstatic.com/s/gowundodum/v12/3Jn5SD_00GqwlBnWc1TUJF0F.ttf"
-npm run subset-font   # → src/assets/fonts/GowunDodum-subset.woff2 재생성
-```
-
-라이선스: SIL Open Font License 1.1 (Google Fonts).
+라이선스: 두 폰트 모두 SIL Open Font License 1.1.
 
 ## 디자인 자산 교체 지점 (플레이스홀더)
 

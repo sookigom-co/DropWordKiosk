@@ -25,7 +25,7 @@ export function resolvePrintWidth(raw: string | undefined): number {
 
 export const PRINT_WIDTH = resolvePrintWidth(import.meta.env.VITE_PRINT_WIDTH);
 
-const FONT_FAMILY = "'Gowun Dodum', sans-serif";
+const FONT_FAMILY = "'Pretendard', 'Gowun Dodum', sans-serif";
 // 폭 축소(576→432)로 좌우 여백을 40→32 로 줄여 콘텐츠 폭(368px)을 최대한 확보해 가독성을 유지한다.
 const MARGIN_X = 32;
 export const CONTENT_WIDTH = PRINT_WIDTH - MARGIN_X * 2;
@@ -76,7 +76,11 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
   // 폰트가 로드되지 않은 상태로 canvas 에 그리면 fallback 글꼴로 렌더되므로 대기.
   if (typeof document !== 'undefined' && 'fonts' in document) {
     try {
-      await document.fonts.load(`28px ${FONT_FAMILY}`);
+      // 캔버스는 normal/bold 두 weight 를 모두 사용하므로 가변 폰트를 양쪽 weight 로 로드한다.
+      await Promise.all([
+        document.fonts.load(`28px ${FONT_FAMILY}`),
+        document.fonts.load(`bold 28px ${FONT_FAMILY}`),
+      ]);
       await document.fonts.ready;
     } catch {
       /* 폰트 로드 실패 시 fallback 으로 진행 */
