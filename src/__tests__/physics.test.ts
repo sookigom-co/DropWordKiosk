@@ -6,6 +6,7 @@ import {
   makeBubbleBody,
   addBody,
   addCeiling,
+  clampBodyToStage,
   setCircleRadius,
   stepEngine,
   WORD_DENSITY,
@@ -209,5 +210,65 @@ describe('사각형 상자 — 회전 금지 낙하·적재(SOO-1056)', () => {
     // 두 상자 모두 각도 0 유지 — 어긋난 충돌에도 기울지 않는다.
     expect(Math.abs(bottom.angle)).toBeLessThan(1e-9);
     expect(Math.abs(top.angle)).toBeLessThan(1e-9);
+  });
+});
+
+describe('clampBodyToStage — 화면 이탈 절대 금지(SOO-1088)', () => {
+  const SW = 764;
+  const SH = 1024;
+  const SR = 30;
+
+  it('경계를 넘어간 원의 중심을 [r, size−r] 로 되돌리고 해당 축 속도를 0 으로', () => {
+    const world = createStep1World(SW, SH, 1);
+    const b = makeBubbleBody(SW + 500, SH + 500, SR); // 우·하단 밖으로 벗어난 상태
+    addBody(world, b);
+    b.velocity.x = 50;
+    b.velocity.y = 50;
+    const changed = clampBodyToStage(b, SW, SH, true);
+    expect(changed).toBe(true);
+    expect(b.position.x).toBeLessThanOrEqual(SW - SR);
+    expect(b.position.y).toBeLessThanOrEqual(SH - SR);
+    // 원의 어떤 부분도 경계 밖에 없음.
+    expect(b.position.x + SR).toBeLessThanOrEqual(SW + 1e-6);
+    expect(b.position.y + SR).toBeLessThanOrEqual(SH + 1e-6);
+    // 클램프된 축 속도 0.
+    expect(b.velocity.x).toBe(0);
+    expect(b.velocity.y).toBe(0);
+  });
+
+  it('경계 안의 원은 손대지 않는다(false 반환·속도 보존)', () => {
+    const world = createStep1World(SW, SH, 1);
+    const b = makeBubbleBody(SW / 2, SH / 2, SR);
+    addBody(world, b);
+    const changed = clampBodyToStage(b, SW, SH, true);
+    expect(changed).toBe(false);
+    expect(b.position.x).toBeCloseTo(SW / 2);
+    expect(b.position.y).toBeCloseTo(SH / 2);
+  });
+
+  it('clampTop=false 면 화면 위(y<0)에서 대기하는 낙하 진입 원을 막지 않는다', () => {
+    const world = createStep1World(SW, SH, 1);
+    const b = makeBubbleBody(SW / 2, -200, SR); // 화면 위에서 낙하 대기
+    addBody(world, b);
+    const changed = clampBodyToStage(b, SW, SH, false);
+    expect(changed).toBe(false);
+    expect(b.position.y).toBeCloseTo(-200);
+  });
+
+  it('매 틱 클램프 하에서 강한 상방 힘을 받아도 버블이 천장 위로 못 나간다', () => {
+    const world = createStep1World(SW, SH, 1);
+    const b = makeBubbleBody(SW / 2, SH - 40, 20);
+    addBody(world, b);
+    // 과도한 상방 힘(경계 밖 탈출 유발)을 매 틱 실으며 클램프 적용.
+    for (let i = 0; i < 300; i++) {
+      b.force.y += -b.mass * 5; // 강한 위로 힘
+      stepEngine(world, 16);
+      clampBodyToStage(b, SW, SH, true);
+    }
+    const r = b.circleRadius ?? 20;
+    expect(b.position.y).toBeGreaterThanOrEqual(r - 1e-6);
+    expect(b.position.y).toBeLessThanOrEqual(SH - r + 1e-6);
+    expect(b.position.x).toBeGreaterThanOrEqual(r - 1e-6);
+    expect(b.position.x).toBeLessThanOrEqual(SW - r + 1e-6);
   });
 });

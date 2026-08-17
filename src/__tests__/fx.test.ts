@@ -8,6 +8,9 @@ import {
   bodiesSettled,
   bottomSpawnPoint,
   brickStackX,
+  clampToStage,
+  midSpawnPoint,
+  spawnZoneFor,
   spreadX,
   centerOutLaneOrder,
   laneCenters,
@@ -628,5 +631,97 @@ describe('purpleScaleRadius (SOO-1054 Step2 원 = Step1 보라 원 스케일)', 
     for (const rnd of [0.2, 0.5, 0.9]) {
       expect(purpleScaleRadius(bubble, rnd)).toBeCloseTo(randomTargetPx(bubble, 1, rnd) / 2);
     }
+  });
+});
+
+describe('spawnZoneFor (SOO-1088 스폰 3등분 구역 결정)', () => {
+  it('하 → 상 → 중 순서로 라운드로빈', () => {
+    expect(spawnZoneFor(0)).toBe('bottom');
+    expect(spawnZoneFor(1)).toBe('top');
+    expect(spawnZoneFor(2)).toBe('middle');
+    expect(spawnZoneFor(3)).toBe('bottom');
+    expect(spawnZoneFor(4)).toBe('top');
+    expect(spawnZoneFor(5)).toBe('middle');
+  });
+  it('장시간 구동 시 세 구역이 정확히 균등 분배(30회 → 각 10회)', () => {
+    const counts = { bottom: 0, top: 0, middle: 0 };
+    for (let i = 0; i < 30; i++) counts[spawnZoneFor(i)]++;
+    expect(counts).toEqual({ bottom: 10, top: 10, middle: 10 });
+  });
+  it('음수·비유한 입력은 하단으로 안전화', () => {
+    expect(spawnZoneFor(-3)).toBe('bottom');
+    expect(spawnZoneFor(-1)).toBe('middle');
+    expect(spawnZoneFor(NaN)).toBe('bottom');
+  });
+});
+
+describe('midSpawnPoint (SOO-1088 가운데 스폰)', () => {
+  const W = 764;
+  const H = 1024;
+  const R = 6;
+  it('y 는 세로 중앙 밴드(기본 40~60%) 안', () => {
+    for (const ry of [0, 0.5, 1]) {
+      const p = midSpawnPoint(W, H, 0.5, ry, R);
+      expect(p.y).toBeGreaterThanOrEqual(H * 0.4 - R);
+      expect(p.y).toBeLessThanOrEqual(H * 0.6 + R);
+    }
+  });
+  it('x 는 항상 마진 안', () => {
+    const margin = 40;
+    for (const rx of [0, 0.5, 1]) {
+      const p = midSpawnPoint(W, H, rx, 0.5, R, margin);
+      expect(p.x).toBeGreaterThanOrEqual(margin);
+      expect(p.x).toBeLessThanOrEqual(W - margin);
+    }
+  });
+  it('y 는 반지름만큼 상·하 경계 안쪽(이탈 방지)', () => {
+    const p = midSpawnPoint(W, H, 0.5, 0.5, R);
+    expect(p.y).toBeGreaterThanOrEqual(R);
+    expect(p.y).toBeLessThanOrEqual(H - R);
+  });
+});
+
+describe('clampToStage (SOO-1088 화면 이탈 방지 클램프)', () => {
+  const W = 764;
+  const H = 1024;
+  const R = 30;
+  it('경계 안의 중심은 그대로 통과(클램프 없음)', () => {
+    const c = clampToStage(400, 500, R, W, H);
+    expect(c).toEqual({ x: 400, y: 500, clampedX: false, clampedY: false });
+  });
+  it('좌·우 경계를 넘으면 [r, width−r] 로 되돌림', () => {
+    const left = clampToStage(-100, 500, R, W, H);
+    expect(left.x).toBe(R);
+    expect(left.clampedX).toBe(true);
+    const right = clampToStage(W + 100, 500, R, W, H);
+    expect(right.x).toBe(W - R);
+    expect(right.clampedX).toBe(true);
+  });
+  it('하단 경계를 넘으면 height−r 로 되돌림', () => {
+    const c = clampToStage(400, H + 200, R, W, H);
+    expect(c.y).toBe(H - R);
+    expect(c.clampedY).toBe(true);
+  });
+  it('반지름을 고려 — 원의 어떤 부분도 경계를 넘지 않음', () => {
+    // 중심이 r 미만이면 원이 경계 밖으로 삐져나옴 → r 로 밀어 넣음.
+    const c = clampToStage(R - 5, R - 5, R, W, H);
+    expect(c.x).toBe(R);
+    expect(c.y).toBe(R);
+  });
+  it('top:false 면 상단(y<0)은 클램프하지 않음(낙하 진입 허용)', () => {
+    const c = clampToStage(400, -300, R, W, H, { top: false });
+    expect(c.y).toBe(-300);
+    expect(c.clampedY).toBe(false);
+    // 그래도 하단·좌·우는 강제.
+    const bottom = clampToStage(400, H + 100, R, W, H, { top: false });
+    expect(bottom.y).toBe(H - R);
+    expect(bottom.clampedY).toBe(true);
+  });
+  it('반지름이 화면 절반보다 커도 중심으로 안전 수렴(NaN 없음)', () => {
+    const c = clampToStage(9999, 9999, 1000, W, H);
+    expect(Number.isFinite(c.x)).toBe(true);
+    expect(Number.isFinite(c.y)).toBe(true);
+    expect(c.x).toBeGreaterThanOrEqual(0);
+    expect(c.x).toBeLessThanOrEqual(W);
   });
 });
