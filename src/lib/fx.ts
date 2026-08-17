@@ -294,6 +294,102 @@ export function topSpawnPoint(
 }
 
 /**
+ * 보라 버블 가운데 스폰 지점(SOO-1088).
+ * 스테이지 세로 중앙 밴드(`midLo`~`midHi`, 높이 대비 0~1) 안에서 x·y 를 좌우/상하 랜덤으로
+ * 고른다. 하단/상단 스폰과 짝을 이뤄 스폰을 3등분(하·상·중)한다.
+ * 가운데 버블은 중립 부력으로 대략 제자리에 떠 있다가 사행하므로, 이 밴드 안에서 태어나면
+ * 자연스럽게 "화면 가운데에 떠 있는" 거동을 보인다. 결과 x·y 는 항상 반지름만큼 경계 안쪽.
+ * rndX·rndY 는 0~1 난수(테스트 시 주입).
+ */
+export function midSpawnPoint(
+  width: number,
+  height: number,
+  rndX: number,
+  rndY: number,
+  startR: number,
+  margin = 40,
+  midLo = 0.4,
+  midHi = 0.6,
+): { x: number; y: number } {
+  const w = Math.max(0, width);
+  const h = Math.max(0, height);
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+  const r = Math.max(0, Number.isFinite(startR) ? startR : 0);
+  const mx = Math.min(margin, w / 2);
+  const x = mx + clamp01(rndX) * Math.max(0, w - mx * 2);
+  const lo = clamp01(midLo);
+  const hi = Math.max(lo, clamp01(midHi));
+  const yRaw = h * (lo + clamp01(rndY) * (hi - lo));
+  // 반지름만큼 상·하 경계 안쪽으로 클램프(경계 관통 방지).
+  const yLo = Math.min(r, h / 2);
+  const yHi = Math.max(yLo, h - r);
+  const y = Math.min(yHi, Math.max(yLo, yRaw));
+  return { x, y };
+}
+
+/** 보라 버블 스폰 구역(SOO-1088) — 세로 3등분. */
+export type SpawnZone = 'bottom' | 'top' | 'middle';
+
+/** 성공 스폰마다 순환하는 3등분 구역 순서(하 → 상 → 중). */
+const SPAWN_ZONE_CYCLE: readonly SpawnZone[] = ['bottom', 'top', 'middle'];
+
+/**
+ * 스폰 카운터 → 스폰 구역(SOO-1088).
+ * 성공 스폰마다 1 씩 증가하는 카운터를 하 → 상 → 중 순서로 라운드로빈 매핑해,
+ * 장시간 구동 시 세 구역이 대략 1/3 씩 균등하게 채워지도록 한다(결정적, 랜덤 없음).
+ * 음수·비유한 입력은 0(=하단)으로 안전화.
+ */
+export function spawnZoneFor(counter: number): SpawnZone {
+  const n = Number.isFinite(counter) ? Math.floor(counter) : 0;
+  const i = ((n % SPAWN_ZONE_CYCLE.length) + SPAWN_ZONE_CYCLE.length) % SPAWN_ZONE_CYCLE.length;
+  return SPAWN_ZONE_CYCLE[i];
+}
+
+/** 스테이지 경계 클램프 결과(SOO-1088). 각 축이 실제로 클램프됐는지 함께 반환. */
+export interface StageClamp {
+  readonly x: number;
+  readonly y: number;
+  readonly clampedX: boolean;
+  readonly clampedY: boolean;
+}
+
+/**
+ * 바디 중심(cx·cy)을 스테이지(0..width, 0..height) 안으로 클램프(SOO-1088 최후 방어선).
+ * 반지름 r 을 고려해 어떤 원도 경계를 벗어나지 않도록 중심을 [r, size−r] 로 제한한다.
+ * 벽/솔버가 놓친 터널링·고속 탈출을 매 틱 위치 보정으로 확정 차단한다.
+ *
+ * `opts.top === false` 면 상단(y 음수 방향) 경계는 클램프하지 않는다 — 위에서 떨어져
+ * 들어오는(낙하 진입) 단어 원이 화면 위(y<0)에서 대기·낙하하는 것을 막지 않기 위함.
+ * 하단·좌·우 경계는 항상 강제한다.
+ * 크기가 지름보다 작은(r>size/2) 극단 케이스는 중심(size/2)으로 모은다.
+ */
+export function clampToStage(
+  cx: number,
+  cy: number,
+  r: number,
+  width: number,
+  height: number,
+  opts: { top?: boolean } = {},
+): StageClamp {
+  const enforceTop = opts.top !== false;
+  const rr = Math.max(0, Number.isFinite(r) ? r : 0);
+  const w = Math.max(0, width);
+  const h = Math.max(0, height);
+  const axis = (v: number, size: number, low: boolean, high: boolean): number => {
+    const val = Number.isFinite(v) ? v : rr;
+    const loBound = Math.min(rr, size / 2);
+    const hiBound = Math.max(loBound, size - rr);
+    let out = val;
+    if (low) out = Math.max(loBound, out);
+    if (high) out = Math.min(hiBound, out);
+    return out;
+  };
+  const x = axis(cx, w, true, true);
+  const y = axis(cy, h, enforceTop, true);
+  return { x, y, clampedX: x !== cx, clampedY: y !== cy };
+}
+
+/**
  * 부력(위로 뜨는 힘, SOO-1057) — matter 가 매 스텝 body.force.y 에 더하는 중력
  * (mass·gravityY·gravityScale)을 factor 배로 되갚아 상쇄·역전한다.
  * 반환값(음수)을 body.force.y 에 더한 뒤 matter 가 중력을 더하면 최종

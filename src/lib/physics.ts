@@ -9,6 +9,7 @@
  * 좌표는 필드(bubble-field) 좌상단 기준 px. y 는 아래로 증가.
  */
 import Matter from 'matter-js';
+import { clampToStage } from './fx';
 
 const { Engine, Bodies, Composite, Body } = Matter;
 
@@ -184,4 +185,34 @@ export function stepEngine(world: Step1World, dtMs: number): void {
 /** 강체 중심 좌표(px). */
 export function bodyCenter(body: Matter.Body): { x: number; y: number; angle: number } {
   return { x: body.position.x, y: body.position.y, angle: body.angle };
+}
+
+/**
+ * 원형 강체를 스테이지 경계 안으로 강제 클램프(SOO-1088 최후 방어선).
+ *
+ * 매 틱 stepEngine 이후 호출해, 벽·솔버가 놓친 터널링·고속 탈출로 반지름만큼이라도
+ * 경계를 넘어간 바디의 중심을 [r, size−r] 로 되돌린다(어떤 원도 화면 밖으로 못 나감).
+ * 클램프가 일어난 축의 속도는 0 으로 눌러 경계에서 반복적으로 튀거나 힘이 누적돼
+ * 다시 탈출하는 것을 막는다.
+ *
+ * `clampTop === false` 면 상단 경계는 강제하지 않아, 위(y<0)에서 떨어져 들어오는
+ * 낙하 진입 단어 원을 방해하지 않는다(하단·좌·우는 항상 강제).
+ *
+ * @returns 위치를 실제로 보정했으면 true.
+ */
+export function clampBodyToStage(
+  body: Matter.Body,
+  width: number,
+  height: number,
+  clampTop = true,
+): boolean {
+  const r = body.circleRadius ?? 0;
+  const c = clampToStage(body.position.x, body.position.y, r, width, height, { top: clampTop });
+  if (!c.clampedX && !c.clampedY) return false;
+  Body.setPosition(body, { x: c.x, y: c.y });
+  Body.setVelocity(body, {
+    x: c.clampedX ? 0 : body.velocity.x,
+    y: c.clampedY ? 0 : body.velocity.y,
+  });
+  return true;
 }
