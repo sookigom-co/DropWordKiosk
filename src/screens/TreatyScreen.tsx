@@ -6,7 +6,6 @@ import { typingFrames } from '../lib/jamo';
 import {
   TREATY_TITLE,
   TREATY_ARTICLES,
-  TREATY_FOOTER_PLACE,
   formatTreatyFooterDate,
 } from '../data/treaty';
 
@@ -177,11 +176,9 @@ export function TreatyScreen({ onNext }: Props) {
         {/* 제10조는 처음부터 렌더하여 자리를 사전 확보한다. 타이핑 완료(allTyped) 전에는
             reserved 로 감춰 두고, 완료 시점에 노출한다 → 등장 순간 다른 조항이 1px 도 밀리지 않는다. */}
         <BlankArticle reserved={!allTyped} />
-        <p className="treaty__footer">
-          {footerDate}
-          <br />
-          {TREATY_FOOTER_PLACE}
-        </p>
+        {/* 서명부: 작성일자만 표기한다. 최하단 작성자 문구('철원 국가유산 야행')는
+            상단 로고와 중복이므로 제거했다(SOO-1090, 화면·인쇄 동일 적용). */}
+        <p className="treaty__footer">{footerDate}</p>
       </motion.article>
 
       {showNext && <NextButton onClick={() => setPhase('guide')} />}

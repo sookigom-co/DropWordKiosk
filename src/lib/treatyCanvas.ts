@@ -8,7 +8,6 @@
 import {
   TREATY_TITLE,
   TREATY_ARTICLES,
-  TREATY_FOOTER_PLACE,
   LOGO_TEXT,
   formatTreatyFooterDate,
 } from '../data/treaty';
@@ -135,9 +134,9 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
   });
 
   // 서명부 — 작성일자는 인쇄 시점의 기기 로컬 시간 기준으로 동적 생성(화면과 동일 포맷).
+  // 최하단 작성자 문구('철원 국가유산 야행')는 상단 로고와 중복이므로 제거했다(SOO-1090).
   const footerDate = formatTreatyFooterDate(new Date());
-  lines.push({ text: footerDate, font: footerFont, lineHeight: 28, align: 'center', gapAfter: 4 });
-  lines.push({ text: TREATY_FOOTER_PLACE, font: footerFont, lineHeight: 28, align: 'center', gapAfter: 0 });
+  lines.push({ text: footerDate, font: footerFont, lineHeight: 28, align: 'center', gapAfter: 0 });
 
   // 전체 높이 계산
   const PADDING_TOP = 48;

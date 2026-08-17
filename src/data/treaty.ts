@@ -19,9 +19,6 @@ export const TREATY_ARTICLES: readonly string[] = [
 /** 제10조 접두 — 완성 문장이 붙는다. (완성 문장 자체가 "우리는 …"으로 시작) */
 export const ARTICLE_10_PREFIX = '';
 
-/** 협정문 하단 서명부 작성 장소·주체 */
-export const TREATY_FOOTER_PLACE = '철원 국가유산 야행';
-
 /**
  * 협정문 하단 작성일자를 `YYYY년 MM월 DD일` 형식으로 만든다(월·일 zero-pad).
  * 하드코딩하지 않고 렌더/인쇄 시점에 기기 로컬 시간(키오스크 Pi, KST) 기준으로
