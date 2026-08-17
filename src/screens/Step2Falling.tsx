@@ -4,7 +4,7 @@ import { ScreenFrame } from '../components/ScreenFrame';
 import { NextButton } from '../components/NextButton';
 import { ADJECTIVES } from '../data/words';
 import { purpleScaleRadius, referenceBubblePx, interleavedReleaseSlots } from '../lib/fx';
-import { WORD_BOX_SCALE } from '../lib/physics';
+import { WORD_BOX_SCALE, clampBodyAngle } from '../lib/physics';
 
 interface Props {
   selectedId: string | null;
@@ -159,6 +159,9 @@ export function Step2Falling({ selectedId, onSelect, onNext }: Props) {
       const dt = last ? Math.min(t - last, 32) : 16;
       last = t;
       Matter.Engine.update(engine, dt);
+      // 문자 회전 ±45° 제한(SOO-1092). 낙하·충돌·적재 과정에서 낱말 상자가 45° 이상 기울지
+      // 않도록 매 틱 각도를 클램프한다. 주황 원 파티클은 문자가 없어 제외.
+      for (const c of cards) clampBodyAngle(c.body);
       for (const c of cards) {
         if (c.el) {
           const { x, y } = c.body.position;

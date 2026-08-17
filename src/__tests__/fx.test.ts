@@ -8,6 +8,7 @@ import {
   bodiesSettled,
   bottomSpawnPoint,
   brickStackX,
+  clampAngle,
   clampToStage,
   midSpawnPoint,
   spawnZoneFor,
@@ -787,5 +788,51 @@ describe('clampToStage (SOO-1088 화면 이탈 방지 클램프)', () => {
     expect(Number.isFinite(c.y)).toBe(true);
     expect(c.x).toBeGreaterThanOrEqual(0);
     expect(c.x).toBeLessThanOrEqual(W);
+  });
+});
+
+describe('clampAngle (SOO-1092 회전 ±45° 제한)', () => {
+  const LIM = Math.PI / 4; // 45°
+
+  it('경계 이내면 각도·각속도를 그대로 통과(clamped=false)', () => {
+    const c = clampAngle(0.2, 0.05, LIM);
+    expect(c.clamped).toBe(false);
+    expect(c.angle).toBe(0.2);
+    expect(c.angularVelocity).toBe(0.05);
+  });
+
+  it('+경계 초과면 +lim 으로 되돌리고 바깥(양수) 각속도 제거', () => {
+    const c = clampAngle(1.2, 0.3, LIM);
+    expect(c.clamped).toBe(true);
+    expect(c.angle).toBeCloseTo(LIM);
+    expect(c.angularVelocity).toBe(0); // 바깥으로 미는 각속도 제거
+  });
+
+  it('−경계 초과면 −lim 으로 되돌리고 바깥(음수) 각속도 제거', () => {
+    const c = clampAngle(-1.2, -0.3, LIM);
+    expect(c.clamped).toBe(true);
+    expect(c.angle).toBeCloseTo(-LIM);
+    expect(c.angularVelocity).toBe(0);
+  });
+
+  it('경계 초과라도 안쪽(0 을 향해 회복)으로 도는 각속도는 유지 → 스냅 없이 복귀', () => {
+    // +경계에서 음의 각속도(=안쪽으로 회복)는 살린다.
+    expect(clampAngle(1.2, -0.3, LIM).angularVelocity).toBe(-0.3);
+    // −경계에서 양의 각속도(=안쪽으로 회복)는 살린다.
+    expect(clampAngle(-1.2, 0.3, LIM).angularVelocity).toBe(0.3);
+  });
+
+  it('결과 각도는 항상 ±lim 이내', () => {
+    for (const a of [-10, -1, -0.1, 0, 0.1, 1, 10]) {
+      const c = clampAngle(a, 0, LIM);
+      expect(Math.abs(c.angle)).toBeLessThanOrEqual(LIM + 1e-9);
+    }
+  });
+
+  it('비유한 입력은 0 으로 안전화', () => {
+    const c = clampAngle(NaN, NaN, LIM);
+    expect(c.angle).toBe(0);
+    expect(c.angularVelocity).toBe(0);
+    expect(c.clamped).toBe(false);
   });
 });
