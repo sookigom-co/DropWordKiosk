@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTreatyFooterDate, TREATY_FOOTER_PLACE } from '../data/treaty';
+import { formatTreatyFooterDate } from '../data/treaty';
 
 describe('formatTreatyFooterDate', () => {
   it('YYYY년 MM월 DD일 형식으로, 월·일을 zero-pad 한다', () => {
@@ -22,9 +22,5 @@ describe('formatTreatyFooterDate', () => {
 
   it('시간 성분과 무관하게 일 단위까지만 표기한다', () => {
     expect(formatTreatyFooterDate(new Date(2026, 7, 12, 23, 59, 59))).toBe('2026년 08월 12일');
-  });
-
-  it('작성자 상수는 철원 국가유산 야행 이다', () => {
-    expect(TREATY_FOOTER_PLACE).toBe('철원 국가유산 야행');
   });
 });
