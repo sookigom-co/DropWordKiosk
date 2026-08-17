@@ -32,6 +32,8 @@ import {
   pickSpawnPointFull,
   purpleColor,
   purpleScaleRadius,
+  randomSpawnPoint,
+  randomSpawnZone,
   randomTargetPx,
   REFERENCE_BUBBLE_CAP_PX,
   referenceBubblePx,
@@ -678,6 +680,68 @@ describe('midSpawnPoint (SOO-1088 가운데 스폰)', () => {
     const p = midSpawnPoint(W, H, 0.5, 0.5, R);
     expect(p.y).toBeGreaterThanOrEqual(R);
     expect(p.y).toBeLessThanOrEqual(H - R);
+  });
+});
+
+describe('randomSpawnPoint (SOO-1088 후속 완전 랜덤 스폰 위치)', () => {
+  const W = 764;
+  const H = 1024;
+  const R = 6;
+  it('전 영역을 커버 — 상단·중앙·하단 어디서든 태어난다', () => {
+    const top = randomSpawnPoint(W, H, 0.5, 0, R);
+    const mid = randomSpawnPoint(W, H, 0.5, 0.5, R);
+    const bot = randomSpawnPoint(W, H, 0.5, 1, R);
+    expect(top.y).toBeLessThan(mid.y);
+    expect(mid.y).toBeLessThan(bot.y);
+    // 밴드에 갇히지 않음: 하단 값은 화면 아래쪽(>60%), 상단 값은 위쪽(<40%).
+    expect(top.y).toBeLessThan(H * 0.4);
+    expect(bot.y).toBeGreaterThan(H * 0.6);
+  });
+  it('rnd 0·1 극단에서도 반지름/마진만큼 경계 안쪽 — 어떤 원도 이탈하지 않음', () => {
+    for (const rx of [0, 1]) {
+      for (const ry of [0, 1]) {
+        const p = randomSpawnPoint(W, H, rx, ry, R);
+        expect(p.x).toBeGreaterThanOrEqual(R);
+        expect(p.x).toBeLessThanOrEqual(W - R);
+        expect(p.y).toBeGreaterThanOrEqual(R);
+        expect(p.y).toBeLessThanOrEqual(H - R);
+      }
+    }
+  });
+  it('반지름이 margin 보다 크면 반지름이 우선(큰 원도 안쪽에서 생성)', () => {
+    const bigR = 80;
+    const p = randomSpawnPoint(W, H, 0, 0, bigR, 40);
+    expect(p.x).toBeGreaterThanOrEqual(bigR);
+    expect(p.y).toBeGreaterThanOrEqual(bigR);
+  });
+  it('비유한 입력·0 크기 화면에서도 NaN 없이 안전', () => {
+    const p = randomSpawnPoint(NaN, NaN, NaN, NaN, R);
+    expect(Number.isFinite(p.x)).toBe(true);
+    expect(Number.isFinite(p.y)).toBe(true);
+  });
+});
+
+describe('randomSpawnZone (SOO-1088 후속 완전 랜덤 거동 선택)', () => {
+  it('0~1 을 세 구역으로 균등 분할(각 1/3)', () => {
+    expect(randomSpawnZone(0)).toBe('bottom');
+    expect(randomSpawnZone(0.3)).toBe('bottom');
+    expect(randomSpawnZone(0.4)).toBe('top');
+    expect(randomSpawnZone(0.6)).toBe('top');
+    expect(randomSpawnZone(0.7)).toBe('middle');
+    expect(randomSpawnZone(1)).toBe('middle');
+  });
+  it('많이 뽑으면 세 거동이 대략 균등하게 나온다', () => {
+    const counts = { bottom: 0, top: 0, middle: 0 };
+    for (let i = 0; i < 300; i++) counts[randomSpawnZone(i / 300)]++;
+    // 각 구역이 최소 80회 이상(1/3 = 100 근처).
+    expect(counts.bottom).toBeGreaterThan(80);
+    expect(counts.top).toBeGreaterThan(80);
+    expect(counts.middle).toBeGreaterThan(80);
+  });
+  it('비유한·범위 밖 입력은 0~1 로 안전화', () => {
+    expect(randomSpawnZone(NaN)).toBe('bottom');
+    expect(randomSpawnZone(-5)).toBe('bottom');
+    expect(randomSpawnZone(9)).toBe('middle');
   });
 });
 

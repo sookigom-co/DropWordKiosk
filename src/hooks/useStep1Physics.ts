@@ -14,20 +14,18 @@ import {
 import {
   areaFilled,
   bodiesSettled,
-  bottomSpawnPoint,
   buoyancyForce,
   burstCount,
   easeOutCubic,
   FILL_STOP_RATIO,
   firstFreeSpawn,
   growthRadius,
-  midSpawnPoint,
   purpleColor,
+  randomSpawnPoint,
+  randomSpawnZone,
   randomTargetPx,
   referenceBubblePx,
-  spawnZoneFor,
   swayForce,
-  topSpawnPoint,
   type Circle,
   type FxSettings,
   type SpawnZone,
@@ -199,10 +197,8 @@ export function useStep1Physics(
 
     const purpleSims: PurpleSim[] = [];
     let purpleId = 0;
-    // 스폰 3등분 카운터(SOO-1059 이원화 → SOO-1088 삼등분) — 성공 스폰마다 +1,
-    // spawnZoneFor 가 하 → 상 → 중 순서로 라운드로빈 매핑해 장시간 구동 시 세 구역이
-    // 대략 1/3 씩 균등 유지. 실패(빈 자리 없음) 스폰은 세지 않아 균형 보존.
-    let spawnCounter = 0;
+    // 스폰 위치·거동은 매 스폰 완전 랜덤(SOO-1088 후속, 보더 요청) — 3등분 라운드로빈 카운터 폐기.
+    // randomSpawnPoint 로 전 영역에서 위치를, randomSpawnZone 으로 거동(상승/하강/부유)을 균등 난수로 고른다.
     let startTs = -1;
     let lastTs = -1;
     let lastSpawn = -Infinity;
@@ -230,13 +226,14 @@ export function useStep1Physics(
     };
 
     /**
-     * 보라 버블 하나 스폰 시도(SOO-1057 → SOO-1059 이원화 → SOO-1088 삼등분).
-     * `zone` 에 따라 스폰 위치·거동이 달라진다:
-     *  - 'bottom' : 바닥선 근처 생성 → 부력(BUOYANCY_FACTOR>1)으로 상승
-     *  - 'top'    : 천장선 근처 생성 → 감쇠 중력(DESCEND_FACTOR<1)으로 하강
-     *  - 'middle' : 세로 중앙 밴드 생성 → 중립 부력(NEUTRAL_FACTOR=1)으로 제자리 부유
-     * 어느 구역이든 다른 버블과 겹치지 않는 자리를 SPAWN_TRIES 안에 찾으면 동적 버블을
-     * 만들어 true, 못 찾으면 생성하지 않고 false(false 여도 기존 버블은 유지 — 영속).
+     * 보라 버블 하나 스폰 시도(SOO-1057 → SOO-1059 이원화 → SOO-1088 삼등분 → 완전 랜덤).
+     * 위치는 `randomSpawnPoint` 로 스테이지 전 영역에서 균일 난수(반지름 클램프로 이탈 방지),
+     * 거동은 인자 `zone`(호출부가 `randomSpawnZone` 으로 난수 선택)에 따른 부력 배율로 결정된다:
+     *  - 'bottom' : 부력(BUOYANCY_FACTOR>1)으로 상승
+     *  - 'top'    : 감쇠 중력(DESCEND_FACTOR<1)으로 하강
+     *  - 'middle' : 중립 부력(NEUTRAL_FACTOR=1)으로 제자리 부유
+     * 다른 버블과 겹치지 않는 자리를 SPAWN_TRIES 안에 찾으면 동적 버블을 만들어 true,
+     * 못 찾으면 생성하지 않고 false(false 여도 기존 버블은 유지 — 영속).
      * 단어는 스폰 겹침 판정에서 제외 — 버블이 단어를 밀어 올린다/눌러 내린다.
      */
     const trySpawnPurple = (nowMs: number, zone: SpawnZone): boolean => {
@@ -249,14 +246,10 @@ export function useStep1Physics(
       }));
       const candidates: { x: number; y: number }[] = [];
       for (let k = 0; k < SPAWN_TRIES; k++) {
-        const rx = Math.random();
-        if (zone === 'bottom') {
-          candidates.push(bottomSpawnPoint(width, height, rx, PURPLE_START_R));
-        } else if (zone === 'top') {
-          candidates.push(topSpawnPoint(width, height, rx, PURPLE_START_R));
-        } else {
-          candidates.push(midSpawnPoint(width, height, rx, Math.random(), PURPLE_START_R));
-        }
+        // 완전 랜덤(SOO-1088 후속): 위치는 전 영역 난수, 거동만 zone 이 결정.
+        candidates.push(
+          randomSpawnPoint(width, height, Math.random(), Math.random(), PURPLE_START_R),
+        );
       }
       const spot = firstFreeSpawn(candidates, PURPLE_START_R, bubbleOccupied, SPAWN_PAD);
       if (!spot) return false; // 스폰 구역에 빈 자리 없음 → 이번 스폰 건너뜀.
@@ -353,11 +346,10 @@ export function useStep1Physics(
           if (purpleSims.length >= MAX_PURPLE) break;
           // 화면이 가득 차면 신규 스폰 중단(이미 생성된 버블은 유지 — 영속).
           if (areaFilled(collectOccupied(), width, height, FILL_STOP_RATIO)) break;
-          // 3등분(SOO-1088): 하 → 상 → 중 라운드로빈. 성공 시에만 카운터 전진(균형 보존).
-          if (trySpawnPurple(nowMs, spawnZoneFor(spawnCounter))) {
-            spawnCounter++;
+          // 완전 랜덤(SOO-1088 후속): 위치는 randomSpawnPoint, 거동은 randomSpawnZone 균등 난수.
+          if (trySpawnPurple(nowMs, randomSpawnZone(Math.random()))) {
             spawnedAny = true;
-          } else break; // 스폰 구역에 빈 자리 없음 → 이번 버스트 종료.
+          } else break; // 빈 자리 없음 → 이번 버스트 종료.
         }
         if (spawnedAny) lastSpawn = nowMs;
       }

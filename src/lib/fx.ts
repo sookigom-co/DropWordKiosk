@@ -345,6 +345,50 @@ export function spawnZoneFor(counter: number): SpawnZone {
   return SPAWN_ZONE_CYCLE[i];
 }
 
+/**
+ * 보라 버블 "완전 랜덤" 스폰 지점(SOO-1088 후속, 보더 요청).
+ * 3등분(하·상·중) 라운드로빈·밴드 국한을 폐기하고 스테이지 전 영역에서 균일 난수로 한 점을
+ * 고른다 → 화면 곳곳에 무작위로 태어나는 인상을 준다.
+ * 반지름 startR 과 margin 을 함께 고려해 어떤 원도 경계를 벗어나지 않는 안쪽 [lo, hi] 로
+ * 클램프하므로 화면 이탈 절대 금지 invariant 를 스폰 단계에서 이미 보장한다.
+ * (margin 보다 반지름이 크면 반지름이 우선 — 큰 원도 항상 안쪽에서 태어난다.)
+ * rndX·rndY 는 0~1 난수(테스트 주입). 결과 x·y 는 항상 반지름/마진만큼 경계 안쪽.
+ */
+export function randomSpawnPoint(
+  width: number,
+  height: number,
+  rndX: number,
+  rndY: number,
+  startR: number,
+  margin = 40,
+): { x: number; y: number } {
+  const w = Number.isFinite(width) ? Math.max(0, width) : 0;
+  const h = Number.isFinite(height) ? Math.max(0, height) : 0;
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+  const r = Math.max(0, Number.isFinite(startR) ? startR : 0);
+  const m = Math.max(0, Number.isFinite(margin) ? margin : 0);
+  const inset = Math.max(r, m);
+  const axis = (rnd: number, size: number): number => {
+    const lo = Math.min(inset, size / 2);
+    const hi = Math.max(lo, size - inset);
+    return lo + clamp01(rnd) * (hi - lo);
+  };
+  return { x: axis(rndX, w), y: axis(rndY, h) };
+}
+
+/**
+ * 완전 랜덤 스폰 버블의 거동(부력 구역)을 난수로 고른다(SOO-1088 후속, 보더 요청).
+ * 위치가 전 영역 랜덤이므로 거동도 상승(bottom)·하강(top)·제자리부유(middle) 중 균등 난수로
+ * 골라, 화면 전체에 다양한 움직임의 버블이 무작위로 태어나게 한다. 세 구역 확률은 각 1/3.
+ * rnd 는 0~1 난수(테스트 주입). 비유한·범위 밖 입력은 0~1 로 안전화.
+ */
+export function randomSpawnZone(rnd: number): SpawnZone {
+  const t = Math.min(1, Math.max(0, Number.isFinite(rnd) ? rnd : 0));
+  if (t < 1 / 3) return 'bottom';
+  if (t < 2 / 3) return 'top';
+  return 'middle';
+}
+
 /** 스테이지 경계 클램프 결과(SOO-1088). 각 축이 실제로 클램프됐는지 함께 반환. */
 export interface StageClamp {
   readonly x: number;
