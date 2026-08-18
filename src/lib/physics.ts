@@ -9,7 +9,7 @@
  * 좌표는 필드(bubble-field) 좌상단 기준 px. y 는 아래로 증가.
  */
 import Matter from 'matter-js';
-import { clampToStage, clampAngle } from './fx';
+import { clampToStage, clampBoxToStage, clampAngle } from './fx';
 
 const { Engine, Bodies, Composite, Body } = Matter;
 
@@ -236,6 +236,40 @@ export function clampBodyToStage(
 ): boolean {
   const r = body.circleRadius ?? 0;
   const c = clampToStage(body.position.x, body.position.y, r, width, height, { top: clampTop });
+  if (!c.clampedX && !c.clampedY) return false;
+  Body.setPosition(body, { x: c.x, y: c.y });
+  Body.setVelocity(body, {
+    x: c.clampedX ? 0 : body.velocity.x,
+    y: c.clampedY ? 0 : body.velocity.y,
+  });
+  return true;
+}
+
+/**
+ * 사각형(낱말 상자) 강체를 스테이지 경계 안으로 강제 클램프(SOO-1110 최후 방어선).
+ *
+ * `clampBodyToStage`(원 전용, circleRadius 사용)는 사각형 바디에서 circleRadius 가 undefined 라
+ * r=0 으로 취급돼 상자 절반이 경계를 넘어도 못 막는다. 이 함수는 상자의 반폭·반높이를 직접 받아
+ * 매 틱 stepEngine 이후 중심을 [half, size−half] 로 되돌린다(어떤 상자 모서리도 화면 밖으로 못 나감).
+ * 클램프된 축의 속도는 0 으로 눌러 경계에서 반복 튐·힘 누적 재탈출을 막는다.
+ * `clampTop === false` 면 상단 경계는 강제하지 않아 위(y<0)에서 떨어져 들어오는 낙하 진입을 방해하지
+ * 않는다(하단·좌·우는 항상 강제).
+ *
+ * makeBoxBody 는 inertia=∞·angle 0 고정이라 반폭·반높이가 상수 → 회전에 따른 외접 보정 불필요.
+ *
+ * @returns 위치를 실제로 보정했으면 true.
+ */
+export function clampBoxBodyToStage(
+  body: Matter.Body,
+  halfW: number,
+  halfH: number,
+  width: number,
+  height: number,
+  clampTop = true,
+): boolean {
+  const c = clampBoxToStage(body.position.x, body.position.y, halfW, halfH, width, height, {
+    top: clampTop,
+  });
   if (!c.clampedX && !c.clampedY) return false;
   Body.setPosition(body, { x: c.x, y: c.y });
   Body.setVelocity(body, {

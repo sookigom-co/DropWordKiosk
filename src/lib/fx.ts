@@ -433,6 +433,97 @@ export function clampToStage(
   return { x, y, clampedX: x !== cx, clampedY: y !== cy };
 }
 
+/**
+ * 사각형(낱말 상자) 중심을 스테이지(0..width, 0..height) 안으로 클램프(SOO-1110).
+ *
+ * `clampToStage`(원 전용, 단일 반지름 r)의 사각형 버전 — x 는 반폭(halfW), y 는 반높이(halfH)를
+ * 각각 인셋으로 써서 상자의 어느 모서리도 경계를 넘지 않도록 중심을 [half, size−half] 로 제한한다.
+ * Step3 낱말 상자는 `makeBoxBody`(inertia=∞, angle 0 고정)라 반폭·반높이가 상수 → 회전 보정 불필요.
+ *
+ * `opts.top === false` 면 상단(y<0) 경계는 강제하지 않아, 위에서 떨어져 들어오는 낙하 진입 상자를
+ * 막지 않는다(하단·좌·우는 항상 강제). Step1 `clampToStage` 와 동형 규약.
+ */
+export function clampBoxToStage(
+  cx: number,
+  cy: number,
+  halfW: number,
+  halfH: number,
+  width: number,
+  height: number,
+  opts: { top?: boolean } = {},
+): StageClamp {
+  const enforceTop = opts.top !== false;
+  const w = Math.max(0, width);
+  const h = Math.max(0, height);
+  const hw = Math.max(0, Number.isFinite(halfW) ? halfW : 0);
+  const hh = Math.max(0, Number.isFinite(halfH) ? halfH : 0);
+  const axis = (v: number, size: number, inset: number, low: boolean, high: boolean): number => {
+    const val = Number.isFinite(v) ? v : inset;
+    const lo = Math.min(inset, size / 2);
+    const hi = Math.max(lo, size - inset);
+    let out = val;
+    if (low) out = Math.max(lo, out);
+    if (high) out = Math.min(hi, out);
+    return out;
+  };
+  const x = axis(cx, w, hw, true, true);
+  const y = axis(cy, h, hh, enforceTop, true);
+  return { x, y, clampedX: x !== cx, clampedY: y !== cy };
+}
+
+/**
+ * 결정적 의사난수 생성기(mulberry32, SOO-1110).
+ * 32비트 시드로 초기화되는 순수 함수형 PRNG — 호출마다 0(포함)~1(미포함) 난수를 반환한다.
+ * `Math.random()` 을 컴포넌트 마운트 시 한 번 써 시드를 뽑고, 실제 난수열은 이 시드 기반으로
+ * 재생하면 "세션마다 랜덤 + 한 마운트 내에서는 결정적"이라 테스트·디버깅이 가능하다.
+ */
+export function mulberry32(seed: number): () => number {
+  let a = (Number.isFinite(seed) ? Math.floor(seed) : 0) >>> 0;
+  return function next(): number {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * [0, count) 인덱스의 랜덤 순열(Fisher-Yates, SOO-1110).
+ * rng 는 0~1 난수 공급 함수(테스트 시 결정적 PRNG 주입). 결과는 0..count-1 을 한 번씩 담은 배열.
+ * Step3 낙하 순서(어느 상자가 먼저/위에서 떨어질지)를 무작위화하는 데 쓴다.
+ */
+export function shuffleIndices(count: number, rng: () => number): number[] {
+  const n = Math.max(0, Math.floor(Number.isFinite(count) ? count : 0));
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(i);
+  for (let i = n - 1; i > 0; i--) {
+    const r = rng();
+    const j = Math.floor((Number.isFinite(r) ? Math.min(0.9999999, Math.max(0, r)) : 0) * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+  return out;
+}
+
+/**
+ * 폭 안에서 상자(반폭 halfW)가 경계를 넘지 않는 랜덤 중심 x(SOO-1110).
+ * 인셋 = max(halfW, margin) 로 좌우 여백과 상자 반폭을 함께 고려해 [inset, width−inset] 사이에서
+ * rnd(0~1)로 균일 샘플링한다 → 낙하 x 위치를 무작위화하되 화면 이탈은 스폰 단계에서 이미 차단.
+ * rnd 는 0~1 난수(테스트 시 주입). width 가 좁으면 중앙으로 모은다.
+ */
+export function randomBoxX(rnd: number, width: number, halfW: number, margin = 40): number {
+  const w = Math.max(0, Number.isFinite(width) ? width : 0);
+  const hw = Math.max(0, Number.isFinite(halfW) ? halfW : 0);
+  const m = Math.max(0, Number.isFinite(margin) ? margin : 0);
+  const inset = Math.max(hw, m);
+  const lo = Math.min(inset, w / 2);
+  const hi = Math.max(lo, w - inset);
+  const t = Math.min(1, Math.max(0, Number.isFinite(rnd) ? rnd : 0));
+  return lo + t * (hi - lo);
+}
+
 /** 회전각 클램프 결과(SOO-1092). 각도·각속도 보정값과 실제 클램프 여부를 함께 반환. */
 export interface AngleClamp {
   readonly angle: number;

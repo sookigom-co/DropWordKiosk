@@ -10,6 +10,10 @@ import {
   brickStackX,
   clampAngle,
   clampToStage,
+  clampBoxToStage,
+  mulberry32,
+  shuffleIndices,
+  randomBoxX,
   midSpawnPoint,
   spawnZoneFor,
   spreadX,
@@ -834,5 +838,147 @@ describe('clampAngle (SOO-1092 회전 ±45° 제한)', () => {
     expect(c.angle).toBe(0);
     expect(c.angularVelocity).toBe(0);
     expect(c.clamped).toBe(false);
+  });
+});
+
+describe('clampBoxToStage (SOO-1110 사각형 경계 이탈 방지)', () => {
+  const W = 768;
+  const H = 1024;
+  const HW = 60; // 반폭
+  const HH = 31; // 반높이
+
+  it('경계 안 상자는 보정하지 않는다', () => {
+    const c = clampBoxToStage(400, 500, HW, HH, W, H);
+    expect(c.clampedX).toBe(false);
+    expect(c.clampedY).toBe(false);
+    expect(c.x).toBe(400);
+    expect(c.y).toBe(500);
+  });
+
+  it('좌·우 경계를 넘으면 반폭만큼 안으로 되돌린다', () => {
+    const left = clampBoxToStage(-50, 500, HW, HH, W, H);
+    expect(left.x).toBe(HW);
+    expect(left.clampedX).toBe(true);
+    const right = clampBoxToStage(W + 50, 500, HW, HH, W, H);
+    expect(right.x).toBe(W - HW);
+    expect(right.clampedX).toBe(true);
+  });
+
+  it('하단 경계를 넘으면 반높이만큼 위로 되돌린다', () => {
+    const c = clampBoxToStage(400, H + 100, HW, HH, W, H);
+    expect(c.y).toBe(H - HH);
+    expect(c.clampedY).toBe(true);
+  });
+
+  it('상자 어느 모서리도 경계를 넘지 않는다(x∈[HW,W-HW], y≤H-HH)', () => {
+    for (const [x, y] of [
+      [-999, -999],
+      [9999, 9999],
+      [0, 0],
+      [W, H],
+    ] as const) {
+      const c = clampBoxToStage(x, y, HW, HH, W, H);
+      expect(c.x).toBeGreaterThanOrEqual(HW - 1e-9);
+      expect(c.x).toBeLessThanOrEqual(W - HW + 1e-9);
+      expect(c.y).toBeLessThanOrEqual(H - HH + 1e-9);
+    }
+  });
+
+  it('top=false 면 상단은 강제하지 않아 낙하 진입(y<0)을 막지 않는다', () => {
+    const c = clampBoxToStage(400, -300, HW, HH, W, H, { top: false });
+    expect(c.y).toBe(-300);
+    expect(c.clampedY).toBe(false);
+    // 하단·좌·우는 여전히 강제
+    const bottom = clampBoxToStage(400, H + 100, HW, HH, W, H, { top: false });
+    expect(bottom.y).toBe(H - HH);
+  });
+
+  it('반폭/반높이가 절반 크기보다 크면 중앙으로 모은다', () => {
+    const c = clampBoxToStage(0, 0, W, H, W, H);
+    expect(c.x).toBeCloseTo(W / 2);
+    expect(c.y).toBeCloseTo(H / 2);
+  });
+});
+
+describe('mulberry32 (SOO-1110 결정적 PRNG)', () => {
+  it('같은 시드는 같은 난수열을 재생한다', () => {
+    const a = mulberry32(12345);
+    const b = mulberry32(12345);
+    for (let i = 0; i < 20; i++) expect(a()).toBe(b());
+  });
+
+  it('다른 시드는 다른 열을 만든다', () => {
+    const a = mulberry32(1);
+    const b = mulberry32(2);
+    expect(a()).not.toBe(b());
+  });
+
+  it('반환값은 항상 [0,1) 범위', () => {
+    const r = mulberry32(999);
+    for (let i = 0; i < 1000; i++) {
+      const v = r();
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(1);
+    }
+  });
+
+  it('비유한 시드는 0 으로 안전화(결정적)', () => {
+    expect(mulberry32(NaN)()).toBe(mulberry32(0)());
+  });
+});
+
+describe('shuffleIndices (SOO-1110 랜덤 낙하 순서)', () => {
+  it('0..count-1 을 한 번씩 담은 순열이다', () => {
+    const rng = mulberry32(42);
+    const out = shuffleIndices(10, rng);
+    expect(out.length).toBe(10);
+    expect([...out].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it('같은 시드 PRNG 는 같은 순열(결정적·재현 가능)', () => {
+    expect(shuffleIndices(24, mulberry32(7))).toEqual(shuffleIndices(24, mulberry32(7)));
+  });
+
+  it('count<=0 이면 빈 배열', () => {
+    expect(shuffleIndices(0, mulberry32(1))).toEqual([]);
+    expect(shuffleIndices(-3, mulberry32(1))).toEqual([]);
+  });
+
+  it('실제로 섞인다(항등이 아님)', () => {
+    // 넉넉한 크기에서 어떤 시드로든 항등 순열이 아닌 결과를 하나는 찾는다.
+    let shuffled = false;
+    for (let seed = 1; seed <= 5 && !shuffled; seed++) {
+      const out = shuffleIndices(24, mulberry32(seed));
+      if (out.some((v, i) => v !== i)) shuffled = true;
+    }
+    expect(shuffled).toBe(true);
+  });
+});
+
+describe('randomBoxX (SOO-1110 랜덤 x·경계 내)', () => {
+  const W = 768;
+  it('rnd 0 → 왼쪽 인셋, rnd 1 → 오른쪽 인셋(상자가 경계 안)', () => {
+    const halfW = 60;
+    const lo = randomBoxX(0, W, halfW);
+    const hi = randomBoxX(1, W, halfW);
+    // 인셋 = max(halfW=60, margin=40) = 60
+    expect(lo).toBe(60);
+    expect(hi).toBe(W - 60);
+  });
+
+  it('어떤 rnd·halfW 에도 상자가 경계를 넘지 않는다', () => {
+    for (const halfW of [10, 60, 120]) {
+      for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+        const x = randomBoxX(t, W, halfW);
+        expect(x - halfW).toBeGreaterThanOrEqual(-1e-9);
+        expect(x + halfW).toBeLessThanOrEqual(W + 1e-9);
+      }
+    }
+  });
+
+  it('rnd 범위 밖·비유한 입력은 [0,1] 로 안전화', () => {
+    expect(randomBoxX(-5, W, 60)).toBe(randomBoxX(0, W, 60));
+    expect(randomBoxX(99, W, 60)).toBe(randomBoxX(1, W, 60));
+    expect(Number.isFinite(randomBoxX(NaN, W, 60))).toBe(true);
   });
 });
