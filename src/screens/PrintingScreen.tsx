@@ -9,14 +9,26 @@ interface Props {
   sentence: string;
   onSuccess: (previewUrl: string) => void;
   onError: (state: PrinterState, previewUrl: string | null) => void;
+  /** 프리뷰 모드 — 프린터 호출을 생략하고 생성된 PNG 를 화면에 표시한다. */
+  preview?: boolean;
+  /** 프리뷰 모드에서 PNG 생성 후 호출 — 미리보기 화면으로 분기 */
+  onPreview?: (previewUrl: string) => void;
 }
 
 /**
  * 화면12 — 인쇄 중.
  * 협정문 PNG(432px 흑백)를 만들고, 프린터 상태 확인 후 전송한다.
  * 실패(NO_PAPER/COVER_OPEN/OFFLINE/타임아웃)는 스태프 호출 화면으로 분기한다.
+ * 프리뷰 모드(preview)면 프린터 호출 없이 생성된 PNG 를 프리뷰 화면으로 넘긴다.
  */
-export function PrintingScreen({ client, sentence, onSuccess, onError }: Props) {
+export function PrintingScreen({
+  client,
+  sentence,
+  onSuccess,
+  onError,
+  preview = false,
+  onPreview,
+}: Props) {
   const [percent, setPercent] = useState(8);
   const startedRef = useRef(false);
 
@@ -49,6 +61,13 @@ export function PrintingScreen({ client, sentence, onSuccess, onError }: Props) 
         const png = await renderTreatyPng(sentence);
         previewUrl = png.dataUrl;
 
+        // 프리뷰 모드: 이미지는 정상 생성하되 프린터 클라이언트 호출은 생략하고
+        // 생성된 PNG 를 화면(프리뷰)으로 넘긴다.
+        if (preview) {
+          await finish(() => onPreview?.(previewUrl!));
+          return;
+        }
+
         const status = await client.getStatus();
         if (cancelled) return;
         if (isFailureState(status.state)) {
@@ -72,7 +91,7 @@ export function PrintingScreen({ client, sentence, onSuccess, onError }: Props) 
       cancelled = true;
       clearInterval(progress);
     };
-  }, [client, sentence, onSuccess, onError]);
+  }, [client, sentence, onSuccess, onError, preview, onPreview]);
 
   return (
     <ScreenFrame label="인쇄 진행 화면">

@@ -91,6 +91,7 @@ STEP2 형용사 선택(물리 낙하) → STEP3 동사 선택(정렬 낙하) →
 | 쿼리/환경 | 동작 |
 | --- | --- |
 | `?mock=1` 또는 `VITE_PRINT_MOCK=1` | 인쇄 API mock. 완료 화면에서 PNG 미리보기/다운로드 |
+| `?preview=1` 또는 `VITE_PRINT_PREVIEW=1` | 프리뷰 모드. 프린터 호출 없이 인쇄용 PNG 를 전용 화면에 표시(운영자 확인용). mock 과 독립 |
 | `?printer=no_paper` | 용지 부족 실패 분기(mock) |
 | `?printer=cover_open` | 덮개 열림 실패 분기 |
 | `?printer=offline` | 프린터 오프라인 실패 분기 |

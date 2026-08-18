@@ -19,7 +19,7 @@ export const STEP_ORDER = [
   'done',
 ] as const;
 
-export type Step = (typeof STEP_ORDER)[number] | 'error';
+export type Step = (typeof STEP_ORDER)[number] | 'error' | 'preview';
 
 export interface KioskState {
   step: Step;

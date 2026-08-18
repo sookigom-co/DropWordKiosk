@@ -443,6 +443,24 @@ button {
   justify-content: center;
 }
 
+/* ── 프리뷰 모드 전용 화면(SOO-1099) ─────────────────────────── */
+/* 실기기(768×1024 세로)에서 인쇄용 PNG 전체를 스크롤/축소로 확인 */
+.print-preview {
+  width: 100%;
+  max-width: min(432px, 90vw);
+  max-height: 62vh;
+  overflow: auto;
+  margin: 12px auto 20px;
+  border: 1px solid var(--line);
+  background: #fff;
+  -webkit-overflow-scrolling: touch;
+}
+.print-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .mock-badge {
   position: fixed;
   top: 8px;
