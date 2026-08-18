@@ -44,6 +44,31 @@ export function resolvePrintType(raw: string | undefined): PrintType {
 
 export const PRINT_TYPE = resolvePrintType(import.meta.env.VITE_PRINT_TYPE);
 
+/**
+ * 런타임 포맷 판정(순수 함수) — 빌드타임 env 와 런타임 쿼리를 모두 본다(resolvePreviewMode 선례).
+ *   - ?print_type=landscape → landscape (재빌드 없이 시험, ?preview=1 과 동일한 방식)
+ *   - ?print_type=portrait  → portrait (env 가 landscape 여도 런타임 쿼리가 우선)
+ *   - 쿼리 미지정 → 빌드타임 env(VITE_PRINT_TYPE) 값으로 폴백
+ * 쿼리 값이 있으면 항상 쿼리가 우선하고, 알 수 없는 값은 resolvePrintType 규칙에 따라 portrait.
+ */
+export function resolvePrintTypeRuntime(
+  env: string | undefined,
+  search: string,
+): PrintType {
+  const query = new URLSearchParams(search).get('print_type');
+  if (query !== null && query.trim() !== '') return resolvePrintType(query);
+  return resolvePrintType(env);
+}
+
+/** 현재 실행 환경(빌드 env + window 쿼리)에서 인쇄 포맷을 판정한다. */
+export function currentPrintType(): PrintType {
+  const search = typeof window !== 'undefined' ? window.location.search : '';
+  return resolvePrintTypeRuntime(
+    import.meta.env.VITE_PRINT_TYPE as string | undefined,
+    search,
+  );
+}
+
 const FONT_FAMILY = "'Pretendard', 'Gowun Dodum', sans-serif";
 // 폭 축소(576→432)로 좌우 여백을 40→32 로 줄여 콘텐츠 폭(368px)을 최대한 확보해 가독성을 유지한다.
 const MARGIN_X = 32;
@@ -386,14 +411,15 @@ export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 
 /**
  * 협정문 PNG 를 한 번에 생성 (미리보기 dataURL + 인쇄 전송용 Blob).
- * 포맷은 PRINT_TYPE(VITE_PRINT_TYPE) 에 따라 portrait(기본) / landscape 로 분기한다.
+ * 포맷은 currentPrintType() 에 따라 portrait(기본) / landscape 로 분기한다.
+ *   - 빌드타임 VITE_PRINT_TYPE 또는 런타임 쿼리 ?print_type=landscape(?preview=1 방식) 로 지정.
  * 어느 포맷이든 최종 PNG 폭 = PRINT_WIDTH.
  */
 export async function renderTreatyPng(
   sentence: string,
 ): Promise<{ blob: Blob; dataUrl: string; width: number; height: number }> {
   const canvas =
-    PRINT_TYPE === 'landscape'
+    currentPrintType() === 'landscape'
       ? await renderTreatyCanvasLandscape(sentence)
       : await renderTreatyCanvas(sentence);
   const blob = await canvasToPngBlob(canvas);
