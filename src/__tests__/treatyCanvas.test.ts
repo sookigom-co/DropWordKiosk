@@ -5,6 +5,7 @@ import {
   CONTENT_WIDTH,
   resolvePrintWidth,
   wrapTextByMeasure,
+  computeLogoSize,
 } from '../lib/treatyCanvas';
 
 describe('resolvePrintWidth', () => {
@@ -39,6 +40,29 @@ describe('PRINT_WIDTH / CONTENT_WIDTH 상수', () => {
   it('CONTENT_WIDTH 는 좌우 여백(32)을 제외한 368px 이다', () => {
     expect(CONTENT_WIDTH).toBe(432 - 32 * 2);
     expect(CONTENT_WIDTH).toBe(368);
+  });
+});
+
+describe('computeLogoSize (인쇄 로고 비율 유지 축소)', () => {
+  it('로고 원본(2227×406)을 콘텐츠 폭(368)에 비율 유지로 맞춘다', () => {
+    // 368 * 406/2227 = 67.08 → 67
+    expect(computeLogoSize(2227, 406, 368)).toEqual({ width: 368, height: 67 });
+  });
+
+  it('VITE_PRINT_WIDTH 재정의(예: 576 폭 → 콘텐츠 512)에서도 종횡비를 보존한다', () => {
+    // 512 * 406/2227 = 93.33 → 93
+    expect(computeLogoSize(2227, 406, 512)).toEqual({ width: 512, height: 93 });
+  });
+
+  it('목표 폭과 무관하게 높이/폭 비율이 원본 종횡비와 일치한다', () => {
+    const { width, height } = computeLogoSize(2227, 406, 300);
+    expect(Math.abs(height / width - 406 / 2227)).toBeLessThan(0.01);
+  });
+
+  it('유효하지 않은 입력은 그리지 않도록 {0,0} 을 반환한다', () => {
+    expect(computeLogoSize(0, 406, 368)).toEqual({ width: 0, height: 0 });
+    expect(computeLogoSize(2227, 0, 368)).toEqual({ width: 0, height: 0 });
+    expect(computeLogoSize(2227, 406, 0)).toEqual({ width: 0, height: 0 });
   });
 });
 
