@@ -80,8 +80,8 @@ export function createStep1World(width: number, height: number, gravityY = 1): S
  */
 export function makeWordBody(x: number, y: number, radius: number): Matter.Body {
   return Bodies.circle(x, y, radius, {
-    // 튕김 완화(SOO-1112 후속, 보더 요청 "덜 튕겨나가게"): 0.18 → 0.1.
-    restitution: 0.1,
+    // 튕김 완화(SOO-1112 후속, 보더 요청 "충격량 완화를 조금 더 줄여"): 0.18 → 0.1 → 0.05.
+    restitution: 0.05,
     friction: 0.55,
     frictionStatic: 0.9,
     frictionAir: 0.01,
@@ -115,28 +115,26 @@ export function makeBoxBody(x: number, y: number, width: number, height: number)
 }
 
 /**
- * 보라색 버블(동적 강체) 생성 — SOO-1057.
+ * 보라색 버블(동적 강체) 생성 — SOO-1057 → SOO-1112 후속(부력 제거).
  *
- * 정적 공(제자리 성장)에서 **동적 버블(하단 스폰 → 부력 상승)**으로 전환한다.
- * 낮은 밀도·낮은 마찰·약한 튕김으로 물속 기포처럼 가볍게 떠오르고, `frictionAir`
- * 로 완만한 종단속도를 갖는다. 부력·좌우 흔들림은 매 프레임 훅에서 force 로 준다
- * (`buoyancyForce`/`swayForce`). 동적 강체라 버블끼리·단어와 충돌 해소되어
- * 어떤 시점에도 서로 겹치지 않고(비중첩), 떠오르며 단어를 물리적으로 밀어 올린다.
- * world 에는 아직 추가하지 않는다.
+ * 보더 요청(SOO-1112 후속, "왜 버블이 떠오르지? 워드 볼과 버블 모두 아래로 내려가도록
+ * 같은 비중"): 기존 부력 상승을 폐기하고 버블도 **단어 원과 동일하게 중력만 받아 아래로
+ * 가라앉게** 한다. 밀도는 단어와 동일(BUBBLE_DENSITY === WORD_DENSITY)이라 같은 반지름이면
+ * 질량이 같아, 둘이 같은 비중으로 함께 떨어져 바닥에 쌓인다(부력·좌우 흔들림 force 는
+ * 훅에서 더 이상 싣지 않는다). 동적 강체라 버블끼리·단어와 충돌이 해소돼 어떤 시점에도
+ * 서로 겹치지 않는다(비중첩). world 에는 아직 추가하지 않는다.
  */
 export function makeBubbleBody(x: number, y: number, radius: number): Matter.Body {
   return Bodies.circle(x, y, Math.max(1, radius), {
-    // 튕김 완화(SOO-1112 후속, 보더 요청 "덜 튕겨나가게"): 0.08 → 0.02.
-    // 성장 중 이웃과 겹쳤을 때 충돌 반발을 거의 제거해 버블이 확 튀어 나가지 않는다.
-    restitution: 0.02,
+    // 튕김 완화(SOO-1112 후속, 보더 요청 "충격량 완화를 조금 더 줄여"): 0.08 → 0.02 → 0.
+    // 낙하·충돌 반발을 완전히 제거해 버블이 튀지 않고 차곡차곡 쌓인다.
+    restitution: 0,
     friction: 0.02,
     frictionStatic: 0.05,
-    // 완만한 종단속도(물속 기포처럼) — 너무 빠르면 단어를 뚫고 지나가 못 밀어 올린다.
+    // 완만한 공기저항 — 낙하 종단속도를 부드럽게(회전·미끄러짐 안정화).
     frictionAir: 0.05,
-    // 버블 기준 밀도(BUBBLE_DENSITY). 상승 속도는 밀도와 무관(가속도=g·scale·(factor−1))
-    // 하지만, 순 부력(=mass·g·scale·(factor−1))은 질량에 비례하므로 밀도를 충분히 둬야
-    // 떠오르는 버블이 단어를 밀어 올릴 힘을 갖는다(SOO-1057 요구 5). 단어(WORD_DENSITY)는
-    // 이제 버블과 동일 비중이라(SOO-1112), 버블이 밀면 같은 비중으로 함께 밀려 올라간다.
+    // 단어와 동일 비중(BUBBLE_DENSITY === WORD_DENSITY) — 보더 요청(SOO-1112 후속).
+    // 같은 반지름이면 단어와 질량이 같아 같은 비중으로 함께 아래로 가라앉는다.
     density: BUBBLE_DENSITY,
   });
 }

@@ -16,7 +16,6 @@ import {
 import {
   areaFilled,
   bodiesSettled,
-  buoyancyForce,
   burstCount,
   easeOutCubic,
   FILL_STOP_RATIO,
@@ -26,7 +25,6 @@ import {
   randomFreeSpawn,
   randomTargetPx,
   referenceBubblePx,
-  swayForce,
   upwardPushTargets,
   type Circle,
   type FxSettings,
@@ -60,15 +58,6 @@ const SPAWN_PAD = 4;
 const SETTLE_SPEED = 0.4;
 /** 정착 유지 시간(ms) — 임계 이하가 이만큼 지속돼야 낙하 완료로 확정. */
 const SETTLE_HOLD_MS = 450;
-/**
- * 부력 배율(SOO-1057) — matter 중력의 몇 배 힘을 위로 실을지. 1 초과면 순힘이
- * 위를 향해 버블이 떠오른다(가속도 = g·scale·(factor−1), 질량 무관).
- */
-const BUOYANCY_FACTOR = 1.7;
-/** 좌우 흔들림 세기(가속도 진폭) — 풍선/기포 느낌의 자연스러운 사행. */
-const SWAY_AMPLITUDE = 0.0006;
-/** 좌우 흔들림 각속도(rad/s). */
-const SWAY_FREQ = 1.6;
 
 interface WordSim {
   id: string;
@@ -85,8 +74,6 @@ interface PurpleSim {
   growDurMs: number;
   /** 현재 렌더 반지름(px) — 단조 증가, 절대 줄지 않는다. */
   curR: number;
-  /** 좌우 흔들림 위상 시드(버블마다 다르게 사행). */
-  phase: number;
 }
 
 export interface Step1PhysicsApi {
@@ -103,11 +90,11 @@ export interface Step1PhysicsApi {
 /**
  * Step1 물리 시뮬레이션 구동 훅(SOO-1048 → SOO-1057 → SOO-1112 재수정).
  * matter-js 로 단어 원 중력 낙하·쌓임을 시뮬레이션하고, 낙하 완료 후에는 보라색 버블이
- * **화면 하단(단어 무더기)에서 생성되어**(동적 강체) 부력으로 떠오르며 단어를 위로 밀어
- * 올린다(보더 피드백: "기본적으로 밀어올려야 해"). 버블은 하단에서 **기존 버블과 겹치지 않는
- * 자리에서만** 작게 태어나고(비겹침 스폰), 겹치는 단어는 스폰 순간 목표(성장 후) 반지름 기준으로
- * **위로 사전에 밀어올려**(upwardPushTargets) 자리를 비운다 — 겹친 채 태어나 솔버가 "부르르
- * 떨리는" 현상 없이, 태어나는 순간부터 단어를 밀어 올린다. 하단 빈자리가 없으면 이번 틱 스폰을
+ * **화면 전역 랜덤 위치에서 생성되어**(동적 강체) 단어와 **동일 비중으로 중력만 받아 아래로
+ * 가라앉는다**(SOO-1112 후속, 보더 피드백: "왜 버블이 떠오르지? 모두 아래로 내려가도록"). 버블은
+ * **기존 버블과 겹치지 않는 자리에서만** 작게 태어나고(비겹침 스폰), 겹치는 단어는 스폰 순간
+ * 목표(성장 후) 반지름 기준으로 **밀어내(upwardPushTargets)** 자리를 비운다 — 겹친 채 태어나
+ * 솔버가 "부르르 떨리는" 현상 없이 스폰 직후 프레임부터 겹침 0. 빈자리가 없으면 이번 틱 스폰을
  * 건너뛰고(영속 유지), 화면은 80%(FILL_STOP_RATIO)까지 채운다(비중첩 스폰 유지, 채움↑).
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
  */
@@ -184,8 +171,9 @@ export function useStep1Physics(
     const purpleSims: PurpleSim[] = [];
     let purpleId = 0;
     // 스폰은 스테이지 전역 랜덤(SOO-1112 재재수정, 보더 피드백 "다시 랜덤으로") — 버블이 화면
-    // 어디서든 무작위로 태어나 부력으로 떠오르며 단어를 위로 밀어 올린다. randomFreeSpawn 으로
-    // 기존 버블과 안 겹치는 랜덤 자리를 고른다(빈자리 없으면 이번 틱 보류 — 겹친 채 생성 금지).
+    // 어디서든 무작위로 태어나 단어와 동일 비중으로 중력만 받아 아래로 가라앉는다(부력 제거,
+    // SOO-1112 후속). randomFreeSpawn 으로 기존 버블과 안 겹치는 랜덤 자리를 고른다(빈자리
+    // 없으면 이번 틱 보류 — 겹친 채 생성 금지).
     let startTs = -1;
     let lastTs = -1;
     let lastSpawn = -Infinity;
@@ -222,10 +210,11 @@ export function useStep1Physics(
      * 국한을 폐기하고 화면 어디서든 무작위로 태어나게 한다(SOO-1088 완전 랜덤 분포 복원). 그래서
      *  1) **스테이지 전역**에서 랜덤 후보를 만들고(`randomFreeSpawn`), 시작 반지름이 **기존 버블**과
      *     겹치지 않는 자리에서 작게 태어난다(단어는 겹침 검사 제외 — 밀어 올릴 대상).
-     *  2) 태어나는 순간 겹치는 단어를 **목표(성장 후) 반지름 기준으로 위로 사전에 밀어올려**
+     *  2) 태어나는 순간 겹치는 단어를 **목표(성장 후) 반지름 기준으로 밀어내**
      *     (`upwardPushTargets` → `setBodyPosition`) 자리를 비운다 → 겹친 채 태어나 솔버가 부르르
      *     떠는 현상 없이, 스폰 직후 프레임부터 버블-버블·버블-단어 겹침 0.
-     *  3) 모든 버블은 부력(BUOYANCY_FACTOR>1)으로 상승 → 계속 단어를 위로 밀어 올린다.
+     *  3) 부력을 싣지 않으므로 버블은 단어와 동일 비중으로 중력만 받아 아래로 가라앉는다
+     *     (SOO-1112 후속). 자리를 비운 뒤 버블·단어가 함께 바닥으로 떨어져 쌓인다.
      * 기존 버블과 겹치지 않는 자리가 없으면 이번 틱 스폰을 건너뛰고 false(버블 영속).
      */
     const trySpawnPurple = (nowMs: number): boolean => {
@@ -263,7 +252,6 @@ export function useStep1Physics(
         targetR,
         growDurMs: s.growDurationSec * 1000,
         curR: PURPLE_START_R,
-        phase: Math.random() * Math.PI * 2,
       });
       setPurples((ps) => [...ps, { id, color: purpleColor(s.hue, { alpha: 0.5 }) }]);
       return true;
@@ -288,16 +276,9 @@ export function useStep1Physics(
         }
       }
 
-      // 부력·좌우 흔들림: matter 가 중력을 더하기 전에 버블에 위로 뜨는 힘을 싣는다.
-      const gScale = world.engine.gravity.scale;
-      const gY = world.engine.gravity.y;
-      for (const p of purpleSims) {
-        // 모든 버블은 하단에서 태어나 부력(BUOYANCY_FACTOR>1)으로 상승 → 단어를 위로 밀어 올린다.
-        p.body.force.y += buoyancyForce(p.body.mass, gY, gScale, BUOYANCY_FACTOR);
-        const phase = (nowMs / 1000) * SWAY_FREQ + p.phase;
-        p.body.force.x += swayForce(p.body.mass, phase, SWAY_AMPLITUDE);
-      }
-
+      // 부력 제거(SOO-1112 후속, 보더 요청 "왜 버블이 떠오르지? 모두 아래로 내려가도록"):
+      // 버블에 더 이상 위로 뜨는 힘·좌우 흔들림을 싣지 않는다. 버블은 단어와 동일 비중으로
+      // 중력만 받아 아래로 가라앉아 바닥에 함께 쌓인다.
       stepEngine(world, dt);
 
       // 화면 이탈 절대 금지(SOO-1088 최후 방어선): 매 틱 stepEngine 이후 모든 바디 중심을
