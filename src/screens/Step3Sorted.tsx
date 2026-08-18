@@ -9,9 +9,10 @@ import {
   addBody,
   stepEngine,
   bodyCenter,
+  clampBoxBodyToStage,
   WORD_BOX_SCALE,
 } from '../lib/physics';
-import { brickStackX, spreadX, laneCountForWidth } from '../lib/fx';
+import { mulberry32, shuffleIndices, randomBoxX } from '../lib/fx';
 
 interface Props {
   selectedId: string | null;
@@ -28,8 +29,7 @@ const CARD_H = Math.round(56 * WORD_BOX_SCALE);
 /**
  * 장식용 보라색 사각형 개수(SOO-1056 보더 재요청 `8b1b6614`).
  * Step 2 의 주황(노란) 원과 같은 역할 — 글자 없고 아무 기능 없는 순수 장식 파티클.
- * SOO-1063 재수정: 카드 슬롯을 공유하며 세로 보라 기둥으로 뭉치던 문제를 없애기 위해
- * 개수를 줄이고(10→6) 화면 폭에 균등 분산(`spreadX`)해 카드 사이 빈칸을 채운다.
+ * SOO-1110: 카드와 같은 랜덤 낙하 순서·랜덤 x 풀을 공유한다(세로 보라 기둥·슬롯 공유 문제 해소).
  */
 const SQUARE_COUNT = 6;
 /** 장식 사각형 한 변 길이(px) 기준·증분 — 결정적(랜덤 제거, index 로 변주). */
@@ -38,10 +38,14 @@ const SQUARE_STEP = 6;
 /**
  * 낙하 릴리즈 밴드 — 상자·장식 사각형을 위쪽 밖에서 순차적으로 떨어뜨려
  * 차곡차곡 쌓이게 한다. 슬롯이 클수록 더 위(늦게 진입).
- * SOO-1063 재수정: 랜덤 지터(`Math.random()*RELEASE_JITTER`) 제거 → 정착 계단식 어긋남 방지.
+ *
+ * SOO-1110: 낙하 순서를 랜덤화(`shuffleIndices`)하고 x 위치도 랜덤(`randomBoxX`)으로 바꾼다.
+ * 스폰 겹침을 원천 차단하기 위해 릴리즈 간격(RELEASE_STEP)을 가장 큰 낙하 상자 높이(CARD_H=62)
+ * 보다 크게(90) 둔다 → 두 상자가 같은 x 로 나더라도 스폰 시점에 세로로 절대 겹치지 않는다.
+ * 정착 후 겹침은 matter-js 솔버(positionIterations 10)가 밀어내 해소한다.
  */
 const RELEASE_BASE = -80;
-const RELEASE_STEP = 46;
+const RELEASE_STEP = 90;
 
 /** 슬롯 인덱스 → 초기 y(위쪽 밖). 결정적. */
 function slotY(slot: number): number {
@@ -98,37 +102,38 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     // Step 1 물리 월드 재사용(좌·우·바닥 벽 — 천장 없음, 위에서 떨어뜨림).
     const world = createStep1World(W, H, 1);
 
-    // 결정적 벽돌쌓기 적재(SOO-1063 재수정): 카드를 아래 행부터 좌우로 채우고(brickStackX),
-    // 홀수 행은 반 칸 어긋나게 얹어 세로 타워를 없앤다. 슬롯(=index) 이 작을수록 먼저·낮게 떨어져
-    // 아래 행이 먼저 정착 → "가운데가 약간 높은 낮고 넓은 피라미드". 랜덤 없이 결정적.
-    const repCardW = cardWidth(
-      '가'.repeat(Math.max(1, Math.round(VERBS.reduce((s, v) => s + v.text.length, 0) / VERBS.length))),
-    );
-    // 현재(3~4)보다 촘촘하게 — 행당 최소 4열 확보(폭 여유 시 최대 6).
-    const cols = laneCountForWidth(W, repCardW, 40, 4, 6);
+    // SOO-1110 낙하 랜덤화: 기존 '기억된 고정 위치(brickStackX/spreadX)' 대신
+    // ①낙하 순서(어느 상자가 먼저·아래에서 떨어질지)와 ②x 위치를 모두 무작위로 정한다.
+    // 세션마다 다른 배치를 위해 마운트 시 Math.random() 으로 시드를 뽑고, 실제 난수열은
+    // 그 시드 기반 결정적 PRNG(mulberry32)로 재생 → 한 마운트 안에서는 재현 가능(디버깅 용이).
+    const rng = mulberry32(Math.floor(Math.random() * 0xffffffff));
+
+    // 카드(18) + 장식 사각형(6) 을 하나의 릴리즈 순서 위에 무작위로 흩뿌린다.
+    // slots[k] = k번째 아이템(0..N-1)에 배정된 릴리즈 슬롯 = 낙하 순서. RELEASE_STEP(90)>최대
+    // 상자 높이(62)라 슬롯이 다르면 스폰 시점에 세로로 절대 겹치지 않는다(스폰 겹침 원천 차단).
+    const N = VERBS.length + SQUARE_COUNT;
+    const slots = shuffleIndices(N, rng);
 
     const cards: CardRef[] = VERBS.map((verb, i) => {
       const w = cardWidth(verb.text);
-      const x = clamp(brickStackX(i, cols, W), w / 2, W - w / 2);
-      const y = slotY(i); // index 순서로 아래 행부터 릴리즈(바닥 먼저 정착)
+      const x = randomBoxX(rng(), W, w / 2); // 낙하 x 위치 랜덤(경계 안으로 이미 클램프)
+      const y = slotY(slots[i]); // 낙하 순서 랜덤
       const body = makeBoxBody(x, y, w, CARD_H); // 회전 금지(inertia = Infinity)
-      // 각속도는 주지 않는다(회전 방지). 아래 방향 속도만 결정적으로 살짝(좌우 편향 없음).
-      Matter.Body.setVelocity(body, { x: 0, y: 1 + (i % 3) * 0.3 });
+      // 각속도는 주지 않는다(회전 방지). 아래 방향 속도만 살짝(좌우 편향 없음).
+      Matter.Body.setVelocity(body, { x: 0, y: 1 });
       addBody(world, body);
       return { id: verb.id, text: verb.text, w, body, el: null };
     });
     cardsRef.current = cards;
 
-    // 장식용 보라 사각형 — 글자·기능 없음(aria-hidden). 카드 슬롯과 분리하여 폭 전체에 균등 분산
-    // (spreadX)해 카드 사이 빈칸을 채운다. 카드 뒤(위 행)에 섞여 떨어지도록 슬롯을 인터리브.
+    // 장식용 보라 사각형 — 글자·기능 없음(aria-hidden). 카드와 같은 릴리즈 순서 풀을 공유해
+    // 무작위 슬롯·무작위 x 로 떨어진다(카드 사이사이에 자연스럽게 섞임).
     const squares: SquareRef[] = Array.from({ length: SQUARE_COUNT }, (_, i) => {
       const size = SQUARE_MIN + (i % 4) * SQUARE_STEP; // 30~48px 결정적 변주
-      const x = clamp(spreadX(i, SQUARE_COUNT, W), size / 2, W - size / 2);
-      // 카드 릴리즈 타임라인에 고르게 끼워 넣어 한 번에 같은 높이로 떨어지지 않게 한다.
-      const slot = Math.round(((i + 0.5) / SQUARE_COUNT) * (VERBS.length - 1));
-      const y = slotY(slot);
+      const x = randomBoxX(rng(), W, size / 2); // 낙하 x 위치 랜덤
+      const y = slotY(slots[VERBS.length + i]); // 낙하 순서 랜덤(카드와 공유 풀)
       const body = makeBoxBody(x, y, size, size); // 회전 금지(inertia = Infinity)
-      Matter.Body.setVelocity(body, { x: 0, y: 1 + (i % 3) * 0.3 });
+      Matter.Body.setVelocity(body, { x: 0, y: 1 });
       addBody(world, body);
       return { size, body, el: null };
     });
@@ -144,6 +149,10 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
       const dt = last ? Math.min(t - last, 32) : 16;
       last = t;
       stepEngine(world, dt);
+      // SOO-1110 경계 이탈 방지(최후 방어선): 매 틱 상자 중심을 스테이지 안으로 클램프한다.
+      // clampTop=false — 위(y<0)에서 떨어져 들어오는 낙하 진입은 막지 않고, 하단·좌·우만 강제.
+      for (const c of cards) clampBoxBodyToStage(c.body, c.w / 2, CARD_H / 2, W, H, false);
+      for (const sq of squares) clampBoxBodyToStage(sq.body, sq.size / 2, sq.size / 2, W, H, false);
       for (const c of cards) {
         if (c.el) {
           const { x, y } = bodyCenter(c.body);
@@ -231,8 +240,4 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
       <NextButton onClick={onNext} disabled={selectedId === null} />
     </ScreenFrame>
   );
-}
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v));
 }

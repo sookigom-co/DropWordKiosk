@@ -7,6 +7,7 @@ import {
   addBody,
   addCeiling,
   clampBodyToStage,
+  clampBoxBodyToStage,
   clampBodyAngle,
   setCircleRadius,
   stepEngine,
@@ -312,5 +313,52 @@ describe('clampBodyAngle — 문자 회전 ±45° 제한(SOO-1092)', () => {
       clampBodyAngle(box);
       expect(Math.abs(box.angle)).toBeLessThanOrEqual(MAX_WORD_ANGLE + 1e-6);
     }
+  });
+});
+
+describe('clampBoxBodyToStage (SOO-1110 사각형 경계 이탈 방지)', () => {
+  it('좌측으로 밀려난 상자 중심을 반폭만큼 안으로 되돌리고 x속도를 죽인다', () => {
+    const world = createStep1World(W, H, 1);
+    const box = makeBoxBody(-100, H / 2, 120, 52); // 화면 왼쪽 밖
+    addBody(world, box);
+    Matter.Body.setVelocity(box, { x: -5, y: 0 });
+    const changed = clampBoxBodyToStage(box, 60, 26, W, H);
+    expect(changed).toBe(true);
+    expect(box.position.x).toBeCloseTo(60); // 반폭 = 60
+    expect(box.velocity.x).toBe(0);
+  });
+
+  it('경계 안 상자는 보정하지 않는다(false)', () => {
+    const world = createStep1World(W, H, 1);
+    const box = makeBoxBody(W / 2, H / 2, 120, 52);
+    addBody(world, box);
+    expect(clampBoxBodyToStage(box, 60, 26, W, H)).toBe(false);
+  });
+
+  it('낙하 시뮬 내내 어떤 상자도 좌·우·하단 경계를 넘지 않는다(clampTop=false)', () => {
+    const world = createStep1World(W, H, 1);
+    const boxes = [
+      makeBoxBody(50, -200, 200, 60),
+      makeBoxBody(W - 30, -320, 200, 60),
+      makeBoxBody(W / 2, -80, 160, 60),
+    ];
+    boxes.forEach((b) => addBody(world, b));
+    for (let i = 0; i < 400; i++) {
+      stepEngine(world, 16);
+      for (const b of boxes) clampBoxBodyToStage(b, 100, 30, W, H, false);
+    }
+    for (const b of boxes) {
+      expect(b.position.x - 100).toBeGreaterThanOrEqual(-1e-6); // 좌
+      expect(b.position.x + 100).toBeLessThanOrEqual(W + 1e-6); // 우
+      expect(b.position.y + 30).toBeLessThanOrEqual(H + 1e-6); // 하단
+    }
+  });
+
+  it('top=false 면 위(y<0)에서 대기하는 낙하 진입은 클램프하지 않는다', () => {
+    const world = createStep1World(W, H, 1);
+    const box = makeBoxBody(W / 2, -300, 120, 52);
+    addBody(world, box);
+    // 방금 추가돼 아직 안 떨어진 상태: 상단은 강제되지 않아 y 보정 없음(x 도 경계 안이므로 false)
+    expect(clampBoxBodyToStage(box, 60, 26, W, H, false)).toBe(false);
   });
 });
