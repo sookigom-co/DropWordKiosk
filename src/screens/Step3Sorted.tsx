@@ -30,9 +30,10 @@ const CARD_H = Math.round(56 * WORD_BOX_SCALE);
  * 장식용 보라색 사각형 개수(SOO-1056 보더 재요청 `8b1b6614`).
  * Step 2 의 주황(노란) 원과 같은 역할 — 글자 없고 아무 기능 없는 순수 장식 파티클.
  * SOO-1110: 카드와 같은 낙하 순서·x 풀을 공유한다(세로 보라 기둥·슬롯 공유 문제 해소).
- * SOO-1109: 보더 요청으로 개수 1.5배(6→9).
+ * SOO-1109: 보더 요청으로 개수 1.5배(6→9) → 이후 보더 재요청(`bf9d2a5b`)으로 낱말 상자와 동수(9→18).
+ * 단어(18)와 사각형(18)이 같은 수라 `groupedReleaseOrder(18,18,1,1)` 이 완전한 1:1 교대가 된다.
  */
-const SQUARE_COUNT = 9;
+const SQUARE_COUNT = 18;
 /** 장식 사각형 한 변 길이(px) 기준·증분 — 결정적(랜덤 제거, index 로 변주). */
 const SQUARE_MIN = 30;
 const SQUARE_STEP = 6;
@@ -108,12 +109,12 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     // ①낙하 순서는 보더 요청 패턴(단어·사각형·단어·사각형… 1:1 교대) 으로 고정,
     // ②x 위치는 SOO-1110 의 **좌측 우선 빈-자리 채움**(보더 재요청 "좌측부터 차곡차곡 쌓이게").
     //
-    // 카드(18) + 장식 사각형(9) 을 하나의 릴리즈 순서 위에 배치한다. wordSlots[i]·squareSlots[j]
+    // 카드(18) + 장식 사각형(18) 을 하나의 릴리즈 순서 위에 배치한다. wordSlots[i]·squareSlots[j]
     // 는 각각 i번째 카드·j번째 사각형의 릴리즈 슬롯 = 낙하 순서. RELEASE_STEP(90)>최대 상자
     // 높이(62)라 슬롯이 다르면 스폰 시점에 세로로 절대 겹치지 않는다(스폰 겹침 원천 차단).
     // 보더 재요청(SOO-1109 코멘트 `0a52c954`): 낙하 순서를 **단어·보라박스·단어·보라박스**
     // 1:1 교대로 변경(기존 1단어·2사각형 그룹 → wordsPerGroup=1, squaresPerGroup=1).
-    // 사각형(9)이 단어(18)보다 적으므로 사각형 소진 후 남은 단어는 순서대로 이어진다.
+    // 단어(18)·사각형(18)이 동수이므로 마지막까지 완전한 1:1 교대가 유지된다.
     const { wordSlots, squareSlots } = groupedReleaseOrder(VERBS.length, SQUARE_COUNT, 1, 1);
 
     // 아이템 폭(카드=텍스트 기준, 장식 사각형=결정적 변주).
