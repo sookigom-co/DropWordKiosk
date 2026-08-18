@@ -11,6 +11,7 @@ import {
   buildArticlesOneLine,
   wrapTextByMeasure,
   computeLogoSize,
+  computeLandscapeLogoLayout,
 } from '../lib/treatyCanvas';
 import { TREATY_ARTICLES } from '../data/treaty';
 
@@ -151,6 +152,70 @@ describe('computeLogoSize (인쇄 로고 비율 유지 축소)', () => {
     expect(computeLogoSize(0, 406, 368)).toEqual({ width: 0, height: 0 });
     expect(computeLogoSize(2227, 0, 368)).toEqual({ width: 0, height: 0 });
     expect(computeLogoSize(2227, 406, 0)).toEqual({ width: 0, height: 0 });
+  });
+});
+
+describe('computeLandscapeLogoLayout (landscape 로고 90° 회전 크기)', () => {
+  it('로고 긴 변(원본 폭)을 인쇄 폭에서 상하 여백을 뺀 길이에 맞춘다', () => {
+    // strip=432, marginY=28 → length = 432 - 56 = 376
+    // scale = 376/2227, drawHeight = round(406 * 376/2227) = round(68.53) = 69
+    const l = computeLandscapeLogoLayout(2227, 406, 432, 28);
+    expect(l.length).toBe(376);
+    expect(l.drawWidth).toBe(376);
+    expect(l.drawHeight).toBe(69);
+    expect(l.thickness).toBe(69);
+  });
+
+  it('종횡비를 보존한다(drawHeight/drawWidth ≈ 원본 종횡비)', () => {
+    const l = computeLandscapeLogoLayout(2227, 406, 432, 28);
+    expect(Math.abs(l.drawHeight / l.drawWidth - 406 / 2227)).toBeLessThan(0.01);
+  });
+
+  it('유효하지 않은 입력·여백 과다는 {0,0,0,0}(그리지 않음)', () => {
+    expect(computeLandscapeLogoLayout(0, 406, 432, 28)).toEqual({
+      drawWidth: 0,
+      drawHeight: 0,
+      thickness: 0,
+      length: 0,
+    });
+    expect(computeLandscapeLogoLayout(2227, 0, 432, 28)).toEqual({
+      drawWidth: 0,
+      drawHeight: 0,
+      thickness: 0,
+      length: 0,
+    });
+    // marginY*2 >= strip → length <= 0
+    expect(computeLandscapeLogoLayout(2227, 406, 40, 20)).toEqual({
+      drawWidth: 0,
+      drawHeight: 0,
+      thickness: 0,
+      length: 0,
+    });
+  });
+});
+
+describe('landscape 제1~9조 줄바꿈 기준 = 제10조 폭(W10)', () => {
+  // 각 문자를 10px 로 가정하는 결정적 측정 함수.
+  const measure10 = (t: string) => [...t].length * 10;
+
+  it('제1~9조 한 줄을 W10 폭 기준으로 여러 줄로 자른다(각 줄 ≤ W10)', () => {
+    const oneLine = buildArticlesOneLine(TREATY_ARTICLES);
+    // 제10조가 25글자 한 줄이라고 가정 → W10 = 250px
+    const w10 = 250;
+    const lines = wrapTextByMeasure(measure10, oneLine, w10);
+    expect(lines.length).toBeGreaterThan(1); // 길어서 여러 줄로 잘린다
+    for (const l of lines) {
+      expect(measure10(l)).toBeLessThanOrEqual(w10);
+    }
+    // 줄바꿈 후에도 원문 내용(공백 제외)은 보존된다.
+    expect(lines.join('').replace(/\s/g, '')).toBe(oneLine.replace(/\s/g, ''));
+  });
+
+  it('W10 이 넓을수록 제1~9조 줄 수가 줄어든다', () => {
+    const oneLine = buildArticlesOneLine(TREATY_ARTICLES);
+    const narrow = wrapTextByMeasure(measure10, oneLine, 200);
+    const wide = wrapTextByMeasure(measure10, oneLine, 600);
+    expect(wide.length).toBeLessThanOrEqual(narrow.length);
   });
 });
 
