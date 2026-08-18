@@ -662,6 +662,70 @@ export function firstFreeSpawn(
 }
 
 /**
+ * 하단 밴드에서 시작 반지름 기준 비겹침 스폰 자리(SOO-1112 재수정, 보더 피드백).
+ *
+ * 보더 피드백("겹치지 않는으로 계산하니까 위에만 생성되잖아 … 기본적으로 밀어올려야 해"):
+ * 버블은 화면 위쪽 빈 공간이 아니라 **아래(단어 무더기)에서 태어나 위로 밀어 올려야** 한다.
+ * 그래서 스폰 후보를 하단 밴드(`bottomSpawnPoint`)로만 만들고, 시작 반지름(작음)+pad 가
+ * **기존 버블**과 겹치지 않는 첫 자리를 고른다. 단어는 "밀어 올릴 대상"이라 겹침 검사에서
+ * 제외하고(호출부가 `bubbles` 에 버블만 넘김) `upwardPushTargets` 로 따로 사전에 밀어올린다.
+ * 모든 후보가 기존 버블과 겹치면 null → 이번 틱 스폰 보류(겹친 채 생성 금지, 버블 영속).
+ * rnds 는 후보 x 를 정할 0~1 난수 목록(테스트 주입) — 길이가 후보 시도 횟수.
+ */
+export function bottomFreeSpawn(
+  width: number,
+  height: number,
+  startR: number,
+  bubbles: readonly Circle[],
+  rnds: readonly number[],
+  pad = 0,
+  margin = 40,
+): { x: number; y: number } | null {
+  const candidates = rnds.map((r) => bottomSpawnPoint(width, height, r, startR, margin));
+  return firstFreeSpawn(candidates, startR, bubbles, pad);
+}
+
+/**
+ * 신규 버블 자리를 비우도록 겹치는 단어를 "위로" 밀어올린 목표 y 를 사전 계산(SOO-1112 재수정).
+ *
+ * 보더 피드백("밀어올리는 것까지 사전에 계산해서 진행하라"): 버블이 겹친 채 태어나 물리 솔버가
+ * 부르르 떨며 밀어내는 대신, 스폰 순간 겹치는 단어를 필요한 만큼 위로 이동시켜 겹침을 즉시
+ * 해소한다(= 밀어올림의 사전 계산). `bubble.r` 에 **버블의 목표(성장 후) 반지름**을 넣으면
+ * 다 자란 뒤에도 겹치지 않도록 자리를 미리 비운다.
+ *
+ * 각 단어는 버블 중심 기준으로 **위쪽으로만**(y 감소) 이동한다. 두 원이 (r합+pad) 만큼 떨어지는
+ * 최소 수직 거리까지 올리되, 수평으로 이미 벗어난 단어(|dx| ≥ r합+pad)·현재 겹치지 않는 단어·
+ * 이미 그보다 위에 있는 단어는 건드리지 않는다(아래로는 절대 내리지 않는다). 반환은 이동이
+ * 필요한 단어만 { index, y }(입력 순서).
+ */
+export function upwardPushTargets(
+  bubble: Circle,
+  words: readonly Circle[],
+  pad = 0,
+): { index: number; y: number }[] {
+  const out: { index: number; y: number }[] = [];
+  const R = Math.max(0, Number.isFinite(bubble.r) ? bubble.r : 0);
+  const bx = Number.isFinite(bubble.x) ? bubble.x : 0;
+  const by = Number.isFinite(bubble.y) ? bubble.y : 0;
+  const p = Math.max(0, Number.isFinite(pad) ? pad : 0);
+  for (let i = 0; i < words.length; i++) {
+    const wch = words[i];
+    const wr = Math.max(0, Number.isFinite(wch.r) ? wch.r : 0);
+    const need = R + wr + p;
+    const wx = Number.isFinite(wch.x) ? wch.x : 0;
+    const wy = Number.isFinite(wch.y) ? wch.y : 0;
+    const dx = wx - bx;
+    if (Math.abs(dx) >= need) continue; // 수평으로 이미 벗어남 → 이동 불필요
+    const dy = wy - by;
+    if (dx * dx + dy * dy >= need * need) continue; // 현재 겹치지 않음 → 이동 불필요
+    const targetY = by - Math.sqrt(need * need - dx * dx); // 버블 위쪽으로 need 만큼 떨어진 y
+    if (wy <= targetY) continue; // 이미 그보다 위 → 아래로 내리지 않는다
+    out.push({ index: i, y: targetY });
+  }
+  return out;
+}
+
+/**
  * 화면이 이 비율 이상 차면 신규 보라 공 생성을 멈춘다(SOO-1049 후속).
  * 이미 생성된 공은 유지(영속) — 스폰만 중단.
  * 보더 요청 변천: "2/3" → "4/5" → "가득 채움(1.0)" → **"0.9(90%)"**(현재, SOO-1112).

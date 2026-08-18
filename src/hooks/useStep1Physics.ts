@@ -8,6 +8,7 @@ import {
   clampBodyToStage,
   clampBodyAngle,
   setCircleRadius,
+  setBodyPosition,
   stepEngine,
   bodyCenter,
   type Step1World,
@@ -15,22 +16,20 @@ import {
 import {
   areaFilled,
   bodiesSettled,
+  bottomFreeSpawn,
   buoyancyForce,
   burstCount,
   easeOutCubic,
   FILL_STOP_RATIO,
-  firstFreeSpawn,
   growthRadius,
   maxGrowRadius,
   purpleColor,
-  randomSpawnPoint,
-  randomSpawnZone,
   randomTargetPx,
   referenceBubblePx,
   swayForce,
+  upwardPushTargets,
   type Circle,
   type FxSettings,
-  type SpawnZone,
 } from '../lib/fx';
 import type { WordItem } from '../data/words';
 
@@ -51,11 +50,11 @@ const RELEASE_STAGGER = 110;
 /** 보라 버블 시작 반지름(px) — 작게 태어나 목표 크기까지 성장(자리는 목표 크기 기준 예약). */
 const PURPLE_START_R = 6;
 /**
- * 스폰 자유 공간 후보 시도 횟수(SOO-1112) — 이 횟수 안에 목표(성장 후) 반지름이 이웃과
- * 겹치지 않는 랜덤 자리를 못 찾으면 이번 스폰을 건너뛴다(겹친 채 생성 금지, 기존 버블은 영속).
+ * 하단 스폰 자유 자리 후보 시도 횟수(SOO-1112 재수정) — 하단 밴드에서 이 횟수만큼 랜덤 x 를
+ * 뽑아, 시작 반지름이 기존 버블과 겹치지 않는 첫 자리를 고른다. 다 겹치면 이번 틱 스폰 보류.
  */
 const SPAWN_TRIES = 30;
-/** 스폰·성장 시 이웃과 유지할 최소 여유 간격(px) — 바짝 붙어 태어나는 떨림 방지. */
+/** 스폰·성장·밀어올림 시 이웃과 유지할 최소 여유 간격(px) — 바짝 붙어 태어나는 떨림 방지. */
 const SPAWN_PAD = 4;
 /** 정착 판정 속도 임계값(matter speed). 이 이하가 유지되면 멈춘 것으로 본다. */
 const SETTLE_SPEED = 0.4;
@@ -66,19 +65,6 @@ const SETTLE_HOLD_MS = 450;
  * 위를 향해 버블이 떠오른다(가속도 = g·scale·(factor−1), 질량 무관).
  */
 const BUOYANCY_FACTOR = 1.7;
-/**
- * 하강 버블 중력 배율(SOO-1059) — 상단에서 생성돼 내려오는 버블에 싣는 부력 배율.
- * 1 미만이라 순힘이 아래를 향해(가속도 = g·scale·(1−factor) > 0, 아래로) 버블이 내려온다.
- * 단, 감쇠(<1 이지만 0 아님)로 raw 중력보다 느긋하게 떨어져 "기포/풍선" 질감을 유지한다.
- */
-const DESCEND_FACTOR = 0.5;
-/**
- * 가운데 스폰 버블 부력 배율(SOO-1088) — 중립 부력(=1)이라 순 중력이 0 이 되어 대략
- * 제자리에 뜬 채 좌우 사행(swayForce)으로만 천천히 떠다닌다. 거동 선택 근거: 세로 3등분에서
- * 가운데 구역은 "가운데에 떠 있는" 인상이 가장 자연스럽다. 상승(하단·factor>1)/하강(상단·factor<1)
- * 과 명확히 구분되는 제3의 거동(제자리 부유)을 주어 세 구역이 시각적으로도 구별된다.
- */
-const NEUTRAL_FACTOR = 1;
 /** 좌우 흔들림 세기(가속도 진폭) — 풍선/기포 느낌의 자연스러운 사행. */
 const SWAY_AMPLITUDE = 0.0006;
 /** 좌우 흔들림 각속도(rad/s). */
@@ -101,12 +87,6 @@ interface PurpleSim {
   curR: number;
   /** 좌우 흔들림 위상 시드(버블마다 다르게 사행). */
   phase: number;
-  /**
-   * 이 버블에 실을 부력 배율(SOO-1059 → SOO-1088). 하단 스폰=BUOYANCY_FACTOR(>1, 상승),
-   * 상단 스폰=DESCEND_FACTOR(<1, 감쇠 하강), 가운데 스폰=NEUTRAL_FACTOR(=1, 제자리 부유).
-   * 매 프레임 buoyancyForce 에 그대로 전달.
-   */
-  buoyFactor: number;
 }
 
 export interface Step1PhysicsApi {
@@ -121,13 +101,14 @@ export interface Step1PhysicsApi {
 }
 
 /**
- * Step1 물리 시뮬레이션 구동 훅(SOO-1048 → SOO-1057 개편).
- * matter-js 로 단어 원 중력 낙하·쌓임을 시뮬레이션하고, 낙하 완료 후에는 보라색
- * 버블이 **화면 전 영역의 랜덤 위치에서 생성되어**(동적 강체) 부력 구역에 따라 떠오르거나
- * 가라앉으며 단어를 물리적으로 밀어 올린다. 버블은 **스폰 전에 랜덤 자리를 미리 계산해
- * 목표(성장 후) 반지름이 이웃 버블·단어와 겹치지 않는 곳에서만 태어난다**(SOO-1112 보더
- * 피드백: 겹친 채 태어나 솔버가 밀어내며 "부르르 떨리는" 현상 제거). 빈자리가 없으면 이번
- * 틱 스폰을 건너뛰고(영속 유지), 화면은 90%(FILL_STOP_RATIO)까지만 채운다.
+ * Step1 물리 시뮬레이션 구동 훅(SOO-1048 → SOO-1057 → SOO-1112 재수정).
+ * matter-js 로 단어 원 중력 낙하·쌓임을 시뮬레이션하고, 낙하 완료 후에는 보라색 버블이
+ * **화면 하단(단어 무더기)에서 생성되어**(동적 강체) 부력으로 떠오르며 단어를 위로 밀어
+ * 올린다(보더 피드백: "기본적으로 밀어올려야 해"). 버블은 하단에서 **기존 버블과 겹치지 않는
+ * 자리에서만** 작게 태어나고(비겹침 스폰), 겹치는 단어는 스폰 순간 목표(성장 후) 반지름 기준으로
+ * **위로 사전에 밀어올려**(upwardPushTargets) 자리를 비운다 — 겹친 채 태어나 솔버가 "부르르
+ * 떨리는" 현상 없이, 태어나는 순간부터 단어를 밀어 올린다. 하단 빈자리가 없으면 이번 틱 스폰을
+ * 건너뛰고(영속 유지), 화면은 90%(FILL_STOP_RATIO)까지만 채운다.
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
  */
 export function useStep1Physics(
@@ -202,8 +183,8 @@ export function useStep1Physics(
 
     const purpleSims: PurpleSim[] = [];
     let purpleId = 0;
-    // 스폰 위치·거동은 매 스폰 완전 랜덤(SOO-1088 후속, 보더 요청) — 3등분 라운드로빈 카운터 폐기.
-    // randomSpawnPoint 로 전 영역에서 위치를, randomSpawnZone 으로 거동(상승/하강/부유)을 균등 난수로 고른다.
+    // 스폰은 하단 밴드에서(SOO-1112 재수정, 보더 피드백) — 버블이 아래에서 태어나 부력으로
+    // 떠오르며 단어를 위로 밀어 올린다. bottomFreeSpawn 으로 기존 버블과 안 겹치는 하단 자리를 고른다.
     let startTs = -1;
     let lastTs = -1;
     let lastSpawn = -Infinity;
@@ -216,8 +197,8 @@ export function useStep1Physics(
     /**
      * 현재 점유 영역(기존 보라 버블 + 낙하 완료된 단어 원)을 원 목록으로 수집.
      * 버블은 **목표(성장 후) 반지름**으로 예약해, 아직 다 자라지 않았어도 최종 점유 자리를
-     * 미리 반영한다(SOO-1112). 이 목록을 (1) 신규 스폰 자유 공간 검사, (2) 면적 채움 판정
-     * (스폰 중단, FILL_STOP_RATIO=0.9) 양쪽에 공용으로 쓴다.
+     * 미리 반영한다(SOO-1112). 면적 채움 판정(스폰 중단, FILL_STOP_RATIO=0.9)에 쓴다 —
+     * 신규 버블이 화면 90% 를 넘겨 계속 태어나지 않도록 하는 상한 근사.
      */
     const collectFootprint = (): Circle[] => {
       const occupied: Circle[] = [];
@@ -234,38 +215,47 @@ export function useStep1Physics(
     };
 
     /**
-     * 보라 버블 하나 스폰(SOO-1057 → SOO-1059 이원화 → SOO-1088 완전 랜덤 → SOO-1112 재-비중첩).
-     * 보더 피드백("겹친 채 태어나 부르르 떨림")에 따라 **스폰 전에 랜덤 자리를 미리 계산**한다:
-     * 먼저 목표(성장 후) 반지름을 뽑고, `randomSpawnPoint` 로 전 영역 난수 후보를 SPAWN_TRIES
-     * 만큼 만든 뒤 `firstFreeSpawn` 으로 **목표 반지름 + 여유(SPAWN_PAD)** 가 이웃 버블·단어와
-     * 겹치지 않는 첫 자리를 고른다. 자리를 찾으면 그 곳에서 작은 시작 반지름으로 태어나 자기
-     * 예약 공간 안에서 목표 크기까지 성장하므로 **생성 순간에도 성장 중에도 겹치지 않는다**.
-     * 위치는 여전히 전 영역 균일 난수라 완전 랜덤 분포(SOO-1088)를 유지한다.
-     * 빈 자리가 없으면(화면 포화) 이번 스폰을 건너뛰고 false 를 반환한다(기존 버블은 영속).
-     * 거동은 인자 `zone`(호출부가 `randomSpawnZone` 으로 난수 선택)에 따른 부력 배율로 결정된다:
-     *  - 'bottom' : 부력(BUOYANCY_FACTOR>1)으로 상승
-     *  - 'top'    : 감쇠 중력(DESCEND_FACTOR<1)으로 하강
-     *  - 'middle' : 중립 부력(NEUTRAL_FACTOR=1)으로 제자리 부유
+     * 보라 버블 하나 스폰(SOO-1057 → … → SOO-1112 재수정: 하단 스폰 + 밀어올림 사전 계산).
+     *
+     * 보더 피드백("겹치지 않는으로 계산하니까 위에만 생성되잖아 … 밀어올리는 것까지 사전에
+     * 계산해서 진행하라. 기본적으로 밀어올려야 해"): 자유 공간을 찾으면 단어가 쌓인 하단을 피해
+     * 위쪽에만 생성되므로 밀어올림이 사라진다. 그래서
+     *  1) **하단 밴드**에서만 스폰 후보를 만들고(`bottomFreeSpawn`), 시작 반지름이 **기존 버블**과
+     *     겹치지 않는 자리에서 작게 태어난다(단어는 겹침 검사 제외 — 밀어 올릴 대상).
+     *  2) 태어나는 순간 겹치는 단어를 **목표(성장 후) 반지름 기준으로 위로 사전에 밀어올려**
+     *     (`upwardPushTargets` → `setBodyPosition`) 자리를 비운다 → 겹친 채 태어나 솔버가 부르르
+     *     떠는 현상 없이, 스폰 직후 프레임부터 버블-버블·버블-단어 겹침 0.
+     *  3) 모든 버블은 부력(BUOYANCY_FACTOR>1)으로 상승 → 계속 단어를 위로 밀어 올린다.
+     * 하단에 기존 버블과 겹치지 않는 자리가 없으면 이번 틱 스폰을 건너뛰고 false(버블 영속).
      */
-    const trySpawnPurple = (nowMs: number, zone: SpawnZone): boolean => {
+    const trySpawnPurple = (nowMs: number): boolean => {
       const s = settingsRef.current;
       const targetR = randomTargetPx(bubblePx, s.maxSizeRatio, Math.random()) / 2;
-      // 비중첩 스폰(SOO-1112): 목표 반지름이 들어갈 자유 공간을 사전 계산해 그 자리에서만 생성.
-      // randomSpawnPoint 에 targetR 을 넘겨 후보 중심을 [targetR, size−targetR] 로 클램프 →
-      // 다 자란 버블도 화면 안에 들어온다. firstFreeSpawn 이 이웃(목표 크기 예약)과 겹치지
-      // 않는 첫 후보를 고르고, 없으면 null → 이번 스폰 보류(겹친 채 생성 금지).
-      const footprint = collectFootprint();
-      const candidates: { x: number; y: number }[] = [];
-      for (let k = 0; k < SPAWN_TRIES; k++) {
-        candidates.push(randomSpawnPoint(width, height, Math.random(), Math.random(), targetR));
-      }
-      const spot = firstFreeSpawn(candidates, targetR, footprint, SPAWN_PAD);
-      if (!spot) return false; // 목표 크기가 들어갈 빈 자리 없음 → 이번 스폰 건너뜀(영속 유지).
+      // 하단 스폰 자리: 시작 반지름이 기존 버블과 겹치지 않는 하단 밴드 자리(단어 제외).
+      const bubbleCircles: Circle[] = purpleSims.map((p) => ({
+        x: p.body.position.x,
+        y: p.body.position.y,
+        r: p.curR,
+      }));
+      const rnds: number[] = [];
+      for (let k = 0; k < SPAWN_TRIES; k++) rnds.push(Math.random());
+      const spot = bottomFreeSpawn(width, height, PURPLE_START_R, bubbleCircles, rnds, SPAWN_PAD);
+      if (!spot) return false; // 하단 빈자리 없음 → 이번 스폰 건너뜀(영속 유지).
       const body = makeBubbleBody(spot.x, spot.y, PURPLE_START_R);
       addBody(world, body);
       const id = ++purpleId;
-      const buoyFactor =
-        zone === 'bottom' ? BUOYANCY_FACTOR : zone === 'top' ? DESCEND_FACTOR : NEUTRAL_FACTOR;
+      // 밀어올림 사전 계산: 목표 크기 기준으로 겹치는 단어를 위로 올려 자리를 미리 비운다.
+      const releasedWords = wordSims.filter((w) => w.released);
+      const wordCircles: Circle[] = releasedWords.map((w) => ({
+        x: w.body.position.x,
+        y: w.body.position.y,
+        r: radius,
+      }));
+      const pushes = upwardPushTargets({ x: spot.x, y: spot.y, r: targetR }, wordCircles, SPAWN_PAD);
+      for (const push of pushes) {
+        const w = releasedWords[push.index];
+        setBodyPosition(w.body, w.body.position.x, push.y);
+      }
       purpleSims.push({
         id,
         body,
@@ -274,7 +264,6 @@ export function useStep1Physics(
         growDurMs: s.growDurationSec * 1000,
         curR: PURPLE_START_R,
         phase: Math.random() * Math.PI * 2,
-        buoyFactor,
       });
       setPurples((ps) => [...ps, { id, color: purpleColor(s.hue, { alpha: 0.5 }) }]);
       return true;
@@ -303,8 +292,8 @@ export function useStep1Physics(
       const gScale = world.engine.gravity.scale;
       const gY = world.engine.gravity.y;
       for (const p of purpleSims) {
-        // 하단 스폰=상승(factor>1), 상단 스폰=하강(factor<1) — 버블별 배율(SOO-1059).
-        p.body.force.y += buoyancyForce(p.body.mass, gY, gScale, p.buoyFactor);
+        // 모든 버블은 하단에서 태어나 부력(BUOYANCY_FACTOR>1)으로 상승 → 단어를 위로 밀어 올린다.
+        p.body.force.y += buoyancyForce(p.body.mass, gY, gScale, BUOYANCY_FACTOR);
         const phase = (nowMs / 1000) * SWAY_FREQ + p.phase;
         p.body.force.x += swayForce(p.body.mass, phase, SWAY_AMPLITUDE);
       }
@@ -358,10 +347,10 @@ export function useStep1Physics(
           if (purpleSims.length >= MAX_PURPLE) break;
           // 화면이 90% 차면 신규 스폰 중단(이미 생성된 버블은 유지 — 영속). 목표 크기 예약 기준.
           if (areaFilled(collectFootprint(), width, height, FILL_STOP_RATIO)) break;
-          // 완전 랜덤(SOO-1088 후속): 위치는 randomSpawnPoint, 거동은 randomSpawnZone 균등 난수.
-          if (trySpawnPurple(nowMs, randomSpawnZone(Math.random()))) {
+          // 하단 스폰 + 밀어올림 사전 계산(SOO-1112 재수정) — 아래에서 태어나 단어를 밀어 올린다.
+          if (trySpawnPurple(nowMs)) {
             spawnedAny = true;
-          } else break; // 빈 자리 없음 → 이번 버스트 종료.
+          } else break; // 하단 빈 자리 없음 → 이번 버스트 종료.
         }
         if (spawnedAny) lastSpawn = nowMs;
       }

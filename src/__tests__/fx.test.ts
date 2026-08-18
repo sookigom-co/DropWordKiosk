@@ -6,6 +6,7 @@ import {
   areaFilled,
   balancedLaneX,
   bodiesSettled,
+  bottomFreeSpawn,
   bottomSpawnPoint,
   brickStackX,
   clampAngle,
@@ -45,6 +46,7 @@ import {
   spawnBetweenBodies,
   swayForce,
   topSpawnPoint,
+  upwardPushTargets,
   type Circle,
   type FxSettings,
 } from '../lib/fx';
@@ -1047,5 +1049,107 @@ describe('randomBoxX (SOO-1110 랜덤 x·경계 내)', () => {
     expect(randomBoxX(-5, W, 60)).toBe(randomBoxX(0, W, 60));
     expect(randomBoxX(99, W, 60)).toBe(randomBoxX(1, W, 60));
     expect(Number.isFinite(randomBoxX(NaN, W, 60))).toBe(true);
+  });
+});
+
+describe('bottomFreeSpawn (SOO-1112 재수정 — 하단 비겹침 스폰)', () => {
+  const W = 700;
+  const H = 500;
+  const R = 6;
+
+  it('기존 버블이 없으면 하단 밴드의 첫 후보를 반환한다', () => {
+    const spot = bottomFreeSpawn(W, H, R, [], [0.5], 4);
+    expect(spot).not.toBeNull();
+    // 하단(y 가 바닥 근처).
+    expect(spot!.y).toBeGreaterThan(H * 0.9);
+  });
+
+  it('겹치는 버블을 피해 다음 후보(빈 자리)를 고른다', () => {
+    // 첫 후보(x≈40)에 겹치는 버블, 두 번째 후보(x≈660)는 자유.
+    const occupied: Circle[] = [{ x: 40, y: H - R - 1, r: 40 }];
+    const spot = bottomFreeSpawn(W, H, R, occupied, [0, 1], 4);
+    expect(spot).not.toBeNull();
+    expect(spot!.x).toBeGreaterThan(W / 2);
+  });
+
+  it('모든 후보가 기존 버블과 겹치면 null(스폰 보류)', () => {
+    // 하단 전 폭을 덮는 큰 버블 → 어떤 하단 후보도 자유롭지 않다.
+    const occupied: Circle[] = [{ x: W / 2, y: H, r: W }];
+    const spot = bottomFreeSpawn(W, H, R, occupied, [0, 0.25, 0.5, 0.75, 1], 4);
+    expect(spot).toBeNull();
+  });
+
+  it('단어는 occupied 에 넣지 않으므로 하단이 단어로 차 있어도 스폰된다(밀어올림 전제)', () => {
+    // 호출부는 버블만 넘긴다 — 단어 무더기가 하단을 채워도 하단 스폰이 가능해야 밀어올림이 성립.
+    const spot = bottomFreeSpawn(W, H, R, [], [0.5], 4);
+    expect(spot).not.toBeNull();
+  });
+});
+
+describe('upwardPushTargets (SOO-1112 재수정 — 밀어올림 사전 계산)', () => {
+  it('버블 바로 위에서 겹치는 단어를 위로(y 감소) 민다', () => {
+    const bubble: Circle = { x: 100, y: 400, r: 30 };
+    const words: Circle[] = [{ x: 100, y: 380, r: 20 }]; // 중심거리 20 < 30+20
+    const out = upwardPushTargets(bubble, words, 0);
+    expect(out).toHaveLength(1);
+    expect(out[0].index).toBe(0);
+    // 목표 y 는 버블 위쪽으로 정확히 r합(=50)만큼 떨어진 지점(dx=0).
+    expect(out[0].y).toBeCloseTo(400 - 50);
+    expect(out[0].y).toBeLessThan(380); // 위로 이동
+  });
+
+  it('밀어올린 뒤에는 두 원이 겹치지 않는다(pad 포함)', () => {
+    const bubble: Circle = { x: 100, y: 400, r: 30 };
+    const words: Circle[] = [{ x: 110, y: 390, r: 20 }];
+    const pad = 4;
+    const out = upwardPushTargets(bubble, words, pad);
+    expect(out).toHaveLength(1);
+    const nx = words[0].x;
+    const ny = out[0].y;
+    const dist = Math.hypot(nx - bubble.x, ny - bubble.y);
+    expect(dist).toBeGreaterThanOrEqual(bubble.r + words[0].r + pad - 1e-6);
+  });
+
+  it('수평으로 이미 벗어난 단어는 건드리지 않는다', () => {
+    const bubble: Circle = { x: 100, y: 400, r: 30 };
+    const words: Circle[] = [{ x: 300, y: 400, r: 20 }]; // dx=200 >> 50
+    expect(upwardPushTargets(bubble, words, 0)).toHaveLength(0);
+  });
+
+  it('겹치지 않는(떨어진) 단어는 건드리지 않는다', () => {
+    const bubble: Circle = { x: 100, y: 400, r: 30 };
+    const words: Circle[] = [{ x: 100, y: 300, r: 20 }]; // 거리 100 > 50
+    expect(upwardPushTargets(bubble, words, 0)).toHaveLength(0);
+  });
+
+  it('이미 버블보다 충분히 위에 있는 단어는 아래로 내리지 않는다', () => {
+    // 단어가 버블 위에서 겹치지만 목표 y 보다 이미 위 → 이동 없음(단조 위로만).
+    const bubble: Circle = { x: 100, y: 400, r: 30 };
+    const words: Circle[] = [{ x: 100, y: 360, r: 20 }]; // 거리 40 < 50 → 겹침, 목표 y=350
+    const out = upwardPushTargets(bubble, words, 0);
+    // 목표 y(350) 는 현재 y(360)보다 위이므로 밀어올림 발생, 아래로 내리지 않는다.
+    expect(out).toHaveLength(1);
+    expect(out[0].y).toBeLessThan(360);
+  });
+
+  it('아래에 있는 단어는 위로만 이동해 y 가 감소한다(절대 증가 없음)', () => {
+    const bubble: Circle = { x: 100, y: 400, r: 30 };
+    const words: Circle[] = [
+      { x: 90, y: 410, r: 20 }, // 버블보다 아래에서 겹침
+      { x: 100, y: 385, r: 20 },
+    ];
+    const out = upwardPushTargets(bubble, words, 2);
+    for (const t of out) {
+      expect(t.y).toBeLessThan(words[t.index].y);
+    }
+  });
+
+  it('빈 단어 목록·비유한 입력에 안전', () => {
+    expect(upwardPushTargets({ x: 0, y: 0, r: 10 }, [])).toEqual([]);
+    const out = upwardPushTargets(
+      { x: NaN, y: 0, r: 10 },
+      [{ x: 0, y: 5, r: NaN }],
+    );
+    expect(Array.isArray(out)).toBe(true);
   });
 });
