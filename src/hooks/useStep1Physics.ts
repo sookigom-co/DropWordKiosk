@@ -108,7 +108,7 @@ export interface Step1PhysicsApi {
  * 자리에서만** 작게 태어나고(비겹침 스폰), 겹치는 단어는 스폰 순간 목표(성장 후) 반지름 기준으로
  * **위로 사전에 밀어올려**(upwardPushTargets) 자리를 비운다 — 겹친 채 태어나 솔버가 "부르르
  * 떨리는" 현상 없이, 태어나는 순간부터 단어를 밀어 올린다. 하단 빈자리가 없으면 이번 틱 스폰을
- * 건너뛰고(영속 유지), 화면은 90%(FILL_STOP_RATIO)까지만 채운다.
+ * 건너뛰고(영속 유지), 화면은 60%(FILL_STOP_RATIO)까지만 채운다(겹침 방지 여유 공간).
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
  */
 export function useStep1Physics(
@@ -197,8 +197,8 @@ export function useStep1Physics(
     /**
      * 현재 점유 영역(기존 보라 버블 + 낙하 완료된 단어 원)을 원 목록으로 수집.
      * 버블은 **목표(성장 후) 반지름**으로 예약해, 아직 다 자라지 않았어도 최종 점유 자리를
-     * 미리 반영한다(SOO-1112). 면적 채움 판정(스폰 중단, FILL_STOP_RATIO=0.9)에 쓴다 —
-     * 신규 버블이 화면 90% 를 넘겨 계속 태어나지 않도록 하는 상한 근사.
+     * 미리 반영한다(SOO-1112). 면적 채움 판정(스폰 중단, FILL_STOP_RATIO=0.6)에 쓴다 —
+     * 신규 버블이 화면 60% 를 넘겨 계속 태어나지 않도록 하는 상한 근사(겹침 방지 여유).
      */
     const collectFootprint = (): Circle[] => {
       const occupied: Circle[] = [];

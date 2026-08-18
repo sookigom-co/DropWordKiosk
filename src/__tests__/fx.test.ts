@@ -473,8 +473,10 @@ describe('areaFilled (SOO-1049 후속 4/5 채움 중단)', () => {
   it('면적이 임계 미만이면 false', () => {
     expect(areaFilled([{ x: 50, y: 50, r: 10 }], 100, 100, 0.5)).toBe(false);
   });
-  it('FILL_STOP_RATIO 는 0.9(SOO-1112 — 100%→90%, 여유 공간 확보로 겹침·떨림 방지)', () => {
-    expect(FILL_STOP_RATIO).toBe(0.9);
+  it('FILL_STOP_RATIO 는 0.6(SOO-1112 — 90%→60%, 원 패킹 한계 아래로 낮춰 버블 겹침 제거)', () => {
+    // 원은 겹치지 않고 면적의 ~90%(육각 패킹 이론값)를 넘길 수 없고, 부력·솔버가 눌리는
+    // 실제 상황에서는 더 낮은 밀도에서 이미 겹친다. 60% 로 두어 떼어 놓을 여유를 남긴다.
+    expect(FILL_STOP_RATIO).toBe(0.6);
   });
 });
 
