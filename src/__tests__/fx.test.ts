@@ -38,6 +38,7 @@ import {
   pickSpawnPointFull,
   purpleColor,
   purpleScaleRadius,
+  randomFreeSpawn,
   randomSpawnPoint,
   randomSpawnZone,
   randomTargetPx,
@@ -473,8 +474,10 @@ describe('areaFilled (SOO-1049 후속 4/5 채움 중단)', () => {
   it('면적이 임계 미만이면 false', () => {
     expect(areaFilled([{ x: 50, y: 50, r: 10 }], 100, 100, 0.5)).toBe(false);
   });
-  it('FILL_STOP_RATIO 는 0.9(SOO-1112 — 100%→90%, 여유 공간 확보로 겹침·떨림 방지)', () => {
-    expect(FILL_STOP_RATIO).toBe(0.9);
+  it('FILL_STOP_RATIO 는 0.6(SOO-1112 — 90%→60%, 원 패킹 한계 아래로 낮춰 버블 겹침 제거)', () => {
+    // 원은 겹치지 않고 면적의 ~90%(육각 패킹 이론값)를 넘길 수 없고, 부력·솔버가 눌리는
+    // 실제 상황에서는 더 낮은 밀도에서 이미 겹친다. 60% 로 두어 떼어 놓을 여유를 남긴다.
+    expect(FILL_STOP_RATIO).toBe(0.6);
   });
 });
 
@@ -1082,6 +1085,58 @@ describe('bottomFreeSpawn (SOO-1112 재수정 — 하단 비겹침 스폰)', () 
   it('단어는 occupied 에 넣지 않으므로 하단이 단어로 차 있어도 스폰된다(밀어올림 전제)', () => {
     // 호출부는 버블만 넘긴다 — 단어 무더기가 하단을 채워도 하단 스폰이 가능해야 밀어올림이 성립.
     const spot = bottomFreeSpawn(W, H, R, [], [0.5], 4);
+    expect(spot).not.toBeNull();
+  });
+});
+
+describe('randomFreeSpawn (SOO-1112 재재수정 — 전역 랜덤 비겹침 스폰)', () => {
+  const W = 700;
+  const H = 500;
+  const R = 6;
+
+  it('기존 버블이 없으면 첫 랜덤 후보를 반환한다(경계 안쪽)', () => {
+    const spot = randomFreeSpawn(W, H, R, [], [[0.5, 0.5]], 4);
+    expect(spot).not.toBeNull();
+    expect(spot!.x).toBeGreaterThanOrEqual(R);
+    expect(spot!.x).toBeLessThanOrEqual(W - R);
+    expect(spot!.y).toBeGreaterThanOrEqual(R);
+    expect(spot!.y).toBeLessThanOrEqual(H - R);
+  });
+
+  it('하단뿐 아니라 화면 위쪽에도 태어난다(랜덤 분포 — 하단 국한 아님)', () => {
+    // rndY=0 → 상단 근처. bottomFreeSpawn 과 달리 하단에 갇히지 않는다.
+    const spot = randomFreeSpawn(W, H, R, [], [[0.5, 0]], 4);
+    expect(spot).not.toBeNull();
+    expect(spot!.y).toBeLessThan(H * 0.1);
+  });
+
+  it('겹치는 버블을 피해 다음 랜덤 후보(빈 자리)를 고른다', () => {
+    // 첫 후보(중앙)에 큰 버블이 겹침 → 두 번째 후보(모서리)로.
+    const occupied: Circle[] = [{ x: W / 2, y: H / 2, r: 60 }];
+    const spot = randomFreeSpawn(W, H, R, occupied, [
+      [0.5, 0.5],
+      [0, 0],
+    ], 4);
+    expect(spot).not.toBeNull();
+    // 겹치는 중앙이 아니라 두 번째 후보(좌상단 안쪽).
+    expect(spot!.x).toBeLessThan(W / 2);
+    expect(spot!.y).toBeLessThan(H / 2);
+  });
+
+  it('모든 후보가 기존 버블과 겹치면 null(스폰 보류 — 겹친 채 생성 금지)', () => {
+    // 화면 전체를 덮는 거대 버블 → 어떤 후보도 자유롭지 않다.
+    const occupied: Circle[] = [{ x: W / 2, y: H / 2, r: W }];
+    const spot = randomFreeSpawn(W, H, R, occupied, [
+      [0, 0],
+      [0.5, 0.5],
+      [1, 1],
+    ], 4);
+    expect(spot).toBeNull();
+  });
+
+  it('단어는 occupied 에 넣지 않으므로 단어가 있어도 스폰된다(밀어올림 전제 유지)', () => {
+    // 호출부는 버블만 넘긴다 — 단어는 upwardPushTargets 로 밀어 올린다.
+    const spot = randomFreeSpawn(W, H, R, [], [[0.3, 0.7]], 4);
     expect(spot).not.toBeNull();
   });
 });
