@@ -130,6 +130,30 @@ export function easeOutCubic(t: number): number {
 }
 
 /**
+ * 지수 감쇠(ease-out)로 `current` 를 `target` 쪽으로 한 프레임(`dtMs`) 만큼 부드럽게 접근시킨다(SOO-1112 후속).
+ *
+ * 보더 피드백("좀 부드럽게 안될까? 왜 튕겨나가지 그냥 밀려만 나야 하는데?"): 겹친 단어를 한 프레임
+ * 순간이동(teleport)으로 튕겨 올리면 "튕겨나가는" 것처럼 보인다. 대신 매 프레임 목표 위치로 조금씩
+ * 미끄러지듯(밀려나듯) 이동시키기 위한 헬퍼다. `tau`(ms)는 시간 상수 — 작을수록 빨리, 클수록 천천히
+ * 다가간다. 남은 거리에 비례해 이동하므로 목표 근처에서 자연스럽게 감속하고(ease-out), 절대 목표를
+ * 지나치지 않는다(오버슈트 없음). `|target-current|` 가 `eps` 이하이면 `target` 로 스냅해 무한 접근을 끝낸다.
+ */
+export function approach(
+  current: number,
+  target: number,
+  dtMs: number,
+  tau: number,
+  eps = 0.5,
+): number {
+  const c = Number.isFinite(current) ? current : target;
+  const g = Number.isFinite(target) ? target : c;
+  if (Math.abs(g - c) <= Math.max(0, eps)) return g;
+  const t = Math.max(0, Number.isFinite(dtMs) ? dtMs : 0);
+  const k = 1 - Math.exp(-t / Math.max(1, tau));
+  return c + (g - c) * k;
+}
+
+/**
  * 보라색 공의 현재 반지름(px). 성장(0→dur)·유지·수축 단계를 하나의 함수로 표현한다.
  * - phase 'grow'   : startR → targetR (easeOutCubic)
  * - phase 'shrink' : targetR → 0 (선형)

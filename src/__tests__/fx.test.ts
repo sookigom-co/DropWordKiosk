@@ -3,6 +3,7 @@ import {
   DEFAULT_FX_SETTINGS,
   FILL_STOP_RATIO,
   FX_RANGES,
+  approach,
   areaFilled,
   balancedLaneX,
   bodiesSettled,
@@ -1207,5 +1208,57 @@ describe('upwardPushTargets (SOO-1112 재수정 — 밀어올림 사전 계산)'
       [{ x: 0, y: 5, r: NaN }],
     );
     expect(Array.isArray(out)).toBe(true);
+  });
+});
+
+describe('approach (SOO-1112 후속 — 부드러운 밀어올림 글라이드)', () => {
+  it('목표 쪽으로 이동하되 절대 지나치지 않는다(오버슈트 없음)', () => {
+    const next = approach(0, 100, 16, 95);
+    expect(next).toBeGreaterThan(0);
+    expect(next).toBeLessThan(100);
+  });
+
+  it('위로(감소) 방향도 동일하게 부드럽게 접근한다', () => {
+    const next = approach(400, 350, 16, 95);
+    expect(next).toBeLessThan(400);
+    expect(next).toBeGreaterThan(350);
+  });
+
+  it('여러 프레임 누적 시 목표에 단조 수렴한다(ease-out 감속)', () => {
+    let y = 0;
+    let prevStep = Infinity;
+    for (let i = 0; i < 60; i++) {
+      const nextY = approach(y, 100, 16, 95);
+      if (nextY === 100) {
+        y = nextY;
+        break; // eps 스냅 프레임 — 감속 단조성 검사 대상에서 제외
+      }
+      const step = nextY - y;
+      expect(step).toBeGreaterThanOrEqual(-1e-9); // 뒤로 가지 않음
+      expect(step).toBeLessThanOrEqual(prevStep + 1e-9); // 남은 거리 비례 → 감속
+      prevStep = step;
+      y = nextY;
+    }
+    expect(y).toBeCloseTo(100, 1);
+  });
+
+  it('목표에 eps 이내로 들어오면 정확히 스냅한다(무한 접근 종료)', () => {
+    expect(approach(99.7, 100, 16, 95, 0.5)).toBe(100);
+    expect(approach(100.2, 100, 16, 95, 0.5)).toBe(100);
+  });
+
+  it('dt=0 이면 제자리(움직임 없음)', () => {
+    expect(approach(10, 100, 0, 95)).toBe(10);
+  });
+
+  it('tau 가 작을수록 한 프레임 이동량이 크다(빠른 접근)', () => {
+    const fast = approach(0, 100, 16, 30);
+    const slow = approach(0, 100, 16, 200);
+    expect(fast).toBeGreaterThan(slow);
+  });
+
+  it('비유한 입력에 안전(현재·목표 NaN 폴백)', () => {
+    expect(approach(NaN, 50, 16, 95)).toBe(50);
+    expect(approach(50, NaN, 16, 95)).toBe(50);
   });
 });

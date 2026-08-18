@@ -14,6 +14,7 @@ import {
   type Step1World,
 } from '../lib/physics';
 import {
+  approach,
   areaFilled,
   bodiesSettled,
   burstCount,
@@ -58,12 +59,23 @@ const SPAWN_PAD = 4;
 const SETTLE_SPEED = 0.4;
 /** 정착 유지 시간(ms) — 임계 이하가 이만큼 지속돼야 낙하 완료로 확정. */
 const SETTLE_HOLD_MS = 450;
+/**
+ * 밀어올림 글라이드 시간 상수(ms) — 보더 요청("좀 부드럽게, 튕겨나가지 말고 그냥 밀려만").
+ * 버블 스폰 시 겹치는 단어를 한 프레임 순간이동으로 튕겨 올리는 대신, 이 시간 상수로 매 프레임
+ * 목표 자리까지 지수 감쇠(ease-out)로 부드럽게 미끄러뜨린다. 작을수록 빠르게, 클수록 느긋하게.
+ */
+const PUSH_TAU_MS = 95;
 
 interface WordSim {
   id: string;
   body: import('matter-js').Body;
   releaseAt: number; // ms(엔진 시작 기준)
   released: boolean;
+  /**
+   * 밀어올림 목표 y(px) — 버블 스폰 시 겹친 단어가 부드럽게 미끄러져 올라갈 목표 위치.
+   * null 이면 물리(중력)만 작용. 목표에 도달하면 다시 null 로 풀려 중력으로 복귀한다.
+   */
+  pushTargetY: number | null;
 }
 
 interface PurpleSim {
@@ -158,7 +170,7 @@ export function useStep1Physics(
       const startY = -radius - Math.random() * height * 0.5;
       const body = makeWordBody(startX, startY, radius);
       const slot = order.indexOf(i);
-      return { id: w.id, body, releaseAt: slot * RELEASE_STAGGER, released: false };
+      return { id: w.id, body, releaseAt: slot * RELEASE_STAGGER, released: false, pushTargetY: null };
     });
 
     // 초기 위치를 즉시 그려 first paint 부터 화면 위(낙하 대기)에 놓는다.
@@ -243,7 +255,11 @@ export function useStep1Physics(
       const pushes = upwardPushTargets({ x: spot.x, y: spot.y, r: targetR }, wordCircles, SPAWN_PAD);
       for (const push of pushes) {
         const w = releasedWords[push.index];
-        setBodyPosition(w.body, w.body.position.x, push.y);
+        // 순간이동(튕겨나감) 대신 목표 y 만 기록 — 프레임 루프에서 `approach` 로 부드럽게 밀어올린다
+        // (보더 요청 "튕겨나가지 말고 그냥 밀려만"). 목표는 상단 경계(반지름) 안으로 클램프해
+        // clampBodyToStage 와 충돌해 글라이드가 멈추지 않게 한다. 이미 더 위(작은 y) 목표가 있으면 유지.
+        const ty = Math.max(radius, push.y);
+        w.pushTargetY = w.pushTargetY == null ? ty : Math.min(w.pushTargetY, ty);
       }
       purpleSims.push({
         id,
@@ -280,6 +296,17 @@ export function useStep1Physics(
       // 버블에 더 이상 위로 뜨는 힘·좌우 흔들림을 싣지 않는다. 버블은 단어와 동일 비중으로
       // 중력만 받아 아래로 가라앉아 바닥에 함께 쌓인다.
       stepEngine(world, dt);
+
+      // 밀어올림 글라이드(SOO-1112 후속, 보더 "튕겨나가지 말고 그냥 밀려만"): 버블 스폰 시 겹친
+      // 단어를 순간이동으로 튕겨 올리는 대신, 목표 y 까지 매 프레임 지수 감쇠로 부드럽게 미끄러뜨린다.
+      // 세로 속도는 setBodyPosition 이 0 으로 눌러 중력과 싸우지 않고 매끄럽게 올라가며, 목표에
+      // 도달하면 pushTargetY 를 풀어 다시 중력으로 자연스럽게 가라앉는다(튕김 없음).
+      for (const sim of wordSims) {
+        if (sim.pushTargetY == null) continue;
+        const nextY = approach(sim.body.position.y, sim.pushTargetY, dt, PUSH_TAU_MS);
+        setBodyPosition(sim.body, sim.body.position.x, nextY);
+        if (nextY === sim.pushTargetY) sim.pushTargetY = null;
+      }
 
       // 화면 이탈 절대 금지(SOO-1088 최후 방어선): 매 틱 stepEngine 이후 모든 바디 중심을
       // 스테이지 [r, size−r] 안으로 강제 클램프해, 벽·솔버가 놓친 터널링·고속 탈출을 확정 차단.
