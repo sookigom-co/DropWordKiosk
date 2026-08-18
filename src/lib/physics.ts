@@ -80,8 +80,9 @@ export function createStep1World(width: number, height: number, gravityY = 1): S
  */
 export function makeWordBody(x: number, y: number, radius: number): Matter.Body {
   return Bodies.circle(x, y, radius, {
-    // 튕김 완화(SOO-1112 후속, 보더 요청 "충격량 완화를 조금 더 줄여"): 0.18 → 0.1 → 0.05.
-    restitution: 0.05,
+    // 튕김 완전 제거(SOO-1112 후속, 보더 "왜 튕겨나가지 그냥 밀려만 나야"): 0.18 → 0.1 → 0.05 → 0.
+    // 낙하·충돌 반발을 0 으로 둬 단어가 착지·충돌 시 튀지 않고 밀리기만 한다.
+    restitution: 0,
     friction: 0.55,
     frictionStatic: 0.9,
     frictionAir: 0.01,
