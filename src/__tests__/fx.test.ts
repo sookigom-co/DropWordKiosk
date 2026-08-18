@@ -16,6 +16,7 @@ import {
   mulberry32,
   shuffleIndices,
   randomBoxX,
+  leftmostFreeSlotX,
   midSpawnPoint,
   spawnZoneFor,
   spreadX,
@@ -1054,6 +1055,75 @@ describe('randomBoxX (SOO-1110 랜덤 x·경계 내)', () => {
     expect(randomBoxX(-5, W, 60)).toBe(randomBoxX(0, W, 60));
     expect(randomBoxX(99, W, 60)).toBe(randomBoxX(1, W, 60));
     expect(Number.isFinite(randomBoxX(NaN, W, 60))).toBe(true);
+  });
+});
+
+describe('leftmostFreeSlotX (SOO-1109/1110 좌측 우선 빈-자리 채움)', () => {
+  const W = 768;
+  const M = 40;
+  const G = 8;
+
+  it('빈 행이면 좌측 벽 인셋(margin + 반폭)에 배치한다', () => {
+    const x = leftmostFreeSlotX([], 100, W, M, G);
+    expect(x).toBe(M + 50); // 40 + 50
+  });
+
+  it('좌→우로 차곡차곡: 다음 상자는 이전 상자 우측 끝 + gap 뒤에 놓인다', () => {
+    const first = leftmostFreeSlotX([], 100, W, M, G)!; // 90 (center)
+    const placed = [{ x: first, w: 100 }];
+    const second = leftmostFreeSlotX(placed, 100, W, M, G)!;
+    // 첫 상자 우측 끝 = 90+50 = 140, +gap(8) +반폭(50) = 198
+    expect(second).toBe(140 + G + 50);
+    // 두 상자는 겹치지 않는다(간격 >= gap)
+    expect(second - 50 - (first + 50)).toBeGreaterThanOrEqual(G - 1e-9);
+  });
+
+  it('placed 순서가 뒤섞여 있어도 항상 가장 왼쪽 빈 자리를 찾는다', () => {
+    // 오른쪽에만 상자가 있으면 좌측 벽에 붙는다
+    const placed = [{ x: 600, w: 80 }];
+    const x = leftmostFreeSlotX(placed, 100, W, M, G)!;
+    expect(x).toBe(M + 50);
+  });
+
+  it('좌측이 막혔지만 중간에 빈 틈이 있으면 그 틈에 넣는다', () => {
+    // 좌측에 넓은 상자(center 90, w 100 → 우측 끝 140), 그 다음 자리
+    const placed = [{ x: 90, w: 100 }];
+    const x = leftmostFreeSlotX(placed, 60, W, M, G)!;
+    // 좌측 벽 후보(40+30=70) 는 첫 상자와 겹침 → 우측 끝(140)+gap(8)+반폭(30)=178
+    expect(x).toBe(140 + G + 30);
+  });
+
+  it('행이 꽉 차 우측 벽을 넘으면 null 을 반환한다(→ 새 행)', () => {
+    // 폭 700 상자를 놓으면 남는 공간이 없다
+    const placed = [{ x: M + 350, w: 700 }];
+    const x = leftmostFreeSlotX(placed, 100, W, M, G);
+    expect(x).toBeNull();
+  });
+
+  it('연속 배치 시 어떤 두 상자도 좌우로 겹치지 않는다(비중첩 불변식)', () => {
+    const widths = [120, 90, 150, 60, 200, 80, 110];
+    const row: { x: number; w: number }[] = [];
+    for (const w of widths) {
+      const x = leftmostFreeSlotX(row, w, W, M, G);
+      if (x === null) break; // 새 행 필요
+      row.push({ x, w });
+    }
+    for (let i = 0; i < row.length; i++) {
+      for (let j = i + 1; j < row.length; j++) {
+        const a = row[i];
+        const b = row[j];
+        const overlap = Math.min(a.x + a.w / 2, b.x + b.w / 2) - Math.max(a.x - a.w / 2, b.x - b.w / 2);
+        expect(overlap).toBeLessThanOrEqual(0 + 1e-9); // 겹침 없음
+      }
+      // 경계 안
+      expect(row[i].x - row[i].w / 2).toBeGreaterThanOrEqual(M - 1e-9);
+      expect(row[i].x + row[i].w / 2).toBeLessThanOrEqual(W - M + 1e-9);
+    }
+  });
+
+  it('상자가 스테이지보다 넓으면 null(비유한 입력도 안전)', () => {
+    expect(leftmostFreeSlotX([], 800, W, M, G)).toBeNull();
+    expect(leftmostFreeSlotX([{ x: NaN, w: NaN }], 100, W, M, G)).toBe(M + 50);
   });
 });
 

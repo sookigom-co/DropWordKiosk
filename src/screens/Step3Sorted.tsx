@@ -12,7 +12,7 @@ import {
   clampBoxBodyToStage,
   WORD_BOX_SCALE,
 } from '../lib/physics';
-import { mulberry32, shuffleIndices, randomBoxX } from '../lib/fx';
+import { mulberry32, shuffleIndices, leftmostFreeSlotX, type PlacedBox } from '../lib/fx';
 
 interface Props {
   selectedId: string | null;
@@ -102,9 +102,10 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     // Step 1 물리 월드 재사용(좌·우·바닥 벽 — 천장 없음, 위에서 떨어뜨림).
     const world = createStep1World(W, H, 1);
 
-    // SOO-1110 낙하 랜덤화: 기존 '기억된 고정 위치(brickStackX/spreadX)' 대신
-    // ①낙하 순서(어느 상자가 먼저·아래에서 떨어질지)와 ②x 위치를 모두 무작위로 정한다.
-    // 세션마다 다른 배치를 위해 마운트 시 Math.random() 으로 시드를 뽑고, 실제 난수열은
+    // SOO-1110 낙하 배치: 기존 '기억된 고정 위치(brickStackX/spreadX)' 대신
+    // ①낙하 순서(어느 상자가 먼저·아래에서 떨어질지)는 무작위,
+    // ②x 위치는 **좌측 우선 빈-자리 채움**(보더 재요청 "좌측부터 차곡차곡 쌓이게").
+    // 세션마다 다른 낙하 순서를 위해 마운트 시 Math.random() 으로 시드를 뽑고, 실제 난수열은
     // 그 시드 기반 결정적 PRNG(mulberry32)로 재생 → 한 마운트 안에서는 재현 가능(디버깅 용이).
     const rng = mulberry32(Math.floor(Math.random() * 0xffffffff));
 
@@ -114,9 +115,29 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     const N = VERBS.length + SQUARE_COUNT;
     const slots = shuffleIndices(N, rng);
 
+    // 좌측 우선 빈-자리 채움: 모든 아이템(카드→장식) 폭을 index 순으로 좌→우 스캔해
+    // 첫 번째 수용 가능한 자리에 배치하고, 현재 행이 꽉 차면 다음 행으로 넘어간다(x 는 다시 좌측부터).
+    // 물리 낙하가 세로 적재를 처리하므로 여기서는 목표 x 만 결정한다 → 왼쪽부터 빈틈을 메우며 쌓인다.
+    const packWidths = [
+      ...VERBS.map((v) => cardWidth(v.text)),
+      ...Array.from({ length: SQUARE_COUNT }, (_, i) => SQUARE_MIN + (i % 4) * SQUARE_STEP),
+    ];
+    const packX: number[] = [];
+    let row: PlacedBox[] = [];
+    for (const w of packWidths) {
+      let x = leftmostFreeSlotX(row, w, W);
+      if (x === null) {
+        // 현재 행에 자리 없음 → 새 행 시작(x 는 다시 최좌측부터)
+        row = [];
+        x = leftmostFreeSlotX(row, w, W) ?? W / 2; // 폭이 스테이지보다 넓으면 중앙 폴백
+      }
+      packX.push(x);
+      row.push({ x, w });
+    }
+
     const cards: CardRef[] = VERBS.map((verb, i) => {
-      const w = cardWidth(verb.text);
-      const x = randomBoxX(rng(), W, w / 2); // 낙하 x 위치 랜덤(경계 안으로 이미 클램프)
+      const w = packWidths[i];
+      const x = packX[i]; // 좌측 우선 빈-자리 x
       const y = slotY(slots[i]); // 낙하 순서 랜덤
       const body = makeBoxBody(x, y, w, CARD_H); // 회전 금지(inertia = Infinity)
       // 각속도는 주지 않는다(회전 방지). 아래 방향 속도만 살짝(좌우 편향 없음).
@@ -126,12 +147,13 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     });
     cardsRef.current = cards;
 
-    // 장식용 보라 사각형 — 글자·기능 없음(aria-hidden). 카드와 같은 릴리즈 순서 풀을 공유해
-    // 무작위 슬롯·무작위 x 로 떨어진다(카드 사이사이에 자연스럽게 섞임).
+    // 장식용 보라 사각형 — 글자·기능 없음(aria-hidden). 카드와 같은 릴리즈 순서 풀 + 좌측 우선
+    // 배치 풀을 공유해 카드 사이사이에 자연스럽게 섞인다.
     const squares: SquareRef[] = Array.from({ length: SQUARE_COUNT }, (_, i) => {
-      const size = SQUARE_MIN + (i % 4) * SQUARE_STEP; // 30~48px 결정적 변주
-      const x = randomBoxX(rng(), W, size / 2); // 낙하 x 위치 랜덤
-      const y = slotY(slots[VERBS.length + i]); // 낙하 순서 랜덤(카드와 공유 풀)
+      const idx = VERBS.length + i;
+      const size = packWidths[idx]; // 30~48px 결정적 변주
+      const x = packX[idx]; // 좌측 우선 빈-자리 x
+      const y = slotY(slots[idx]); // 낙하 순서 랜덤(카드와 공유 풀)
       const body = makeBoxBody(x, y, size, size); // 회전 금지(inertia = Infinity)
       Matter.Body.setVelocity(body, { x: 0, y: 1 });
       addBody(world, body);
