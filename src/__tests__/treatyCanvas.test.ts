@@ -153,6 +153,14 @@ describe('computeLogoSize (인쇄 로고 비율 유지 축소)', () => {
     expect(computeLogoSize(2227, 0, 368)).toEqual({ width: 0, height: 0 });
     expect(computeLogoSize(2227, 406, 0)).toEqual({ width: 0, height: 0 });
   });
+
+  it('최하단 이미지(1775×864)를 콘텐츠 폭(368)에 비율 유지·잘림 없이 축소한다(SOO-1108)', () => {
+    // 368 * 864/1775 = 179.16 → 179. 폭이 콘텐츠 폭에 정확히 맞아 좌우 잘림이 없다.
+    const size = computeLogoSize(1775, 864, 368);
+    expect(size).toEqual({ width: 368, height: 179 });
+    expect(size.width).toBeLessThanOrEqual(368);
+    expect(Math.abs(size.height / size.width - 864 / 1775)).toBeLessThan(0.01);
+  });
 });
 
 describe('computeLandscapeLogoLayout (landscape 로고 90° 회전 크기)', () => {

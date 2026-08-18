@@ -14,6 +14,8 @@ import {
 } from '../data/treaty';
 // 인쇄 전용 로고(흑백 감열 대비, 2227×406 RGBA). 화면 로고와 별개 자산(화면 UI 미변경).
 import logoPrintUrl from '../assets/logo-cheorwon-yahaeng-print.png';
+// portrait 인쇄물 최하단 이미지(보더 제공, 1775×864 RGBA). 외부 URL 없이 번들 자산으로 내재화(SOO-1108).
+import footerImageUrl from '../assets/treaty-footer-print.png';
 
 /** 인쇄 PNG 기본 폭(dot). 2S 프린터(54mm / 2.12") 헤드의 인쇄 가능 폭 = 432dot @203dpi. */
 export const DEFAULT_PRINT_WIDTH = 432;
@@ -212,6 +214,21 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
   // 로고와 '평화 협정문' 제목 사이 세로 여백. 보더 요청(SOO-1104)으로 기존 24 → 2배(48).
   const LOGO_GAP_AFTER = 48;
 
+  // 최하단 이미지 로드(SOO-1108 #2). 실패해도 본문은 렌더되도록 null 폴백(이미지만 생략).
+  let footerImage: HTMLImageElement | null = null;
+  try {
+    footerImage = await loadImage(footerImageUrl);
+  } catch {
+    footerImage = null;
+  }
+  // 최하단 이미지는 로고와 동일하게 콘텐츠 폭(좌우 여백 제외)에 비율 유지로 맞춰 중앙 정렬한다.
+  const footerImgW = footerImage ? footerImage.naturalWidth || footerImage.width : 0;
+  const footerImgH = footerImage ? footerImage.naturalHeight || footerImage.height : 0;
+  const footerImageSize = computeLogoSize(footerImgW, footerImgH, CONTENT_WIDTH);
+  const hasFooterImage = footerImage !== null && footerImageSize.height > 0;
+  // 서명부(작성일자)와 최하단 이미지 사이 세로 여백.
+  const FOOTER_IMAGE_GAP_BEFORE = 40;
+
   // 측정용 임시 컨텍스트
   const measureCanvas = document.createElement('canvas');
   const mctx = measureCanvas.getContext('2d')!;
@@ -219,7 +236,6 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
   const titleFont = `bold 34px ${FONT_FAMILY}`;
   const bodyFont = `24px ${FONT_FAMILY}`;
   const article10Font = `bold 24px ${FONT_FAMILY}`;
-  const footerFont = `18px ${FONT_FAMILY}`;
 
   const lines: Line[] = [];
 
@@ -259,8 +275,9 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
 
   // 서명부 — 작성일자는 인쇄 시점의 기기 로컬 시간 기준으로 동적 생성(화면과 동일 포맷).
   // 최하단 작성자 문구('철원 국가유산 야행')는 상단 로고와 중복이므로 제거했다(SOO-1090).
+  // 작성일자 줄은 제10조와 동일한 폰트 스타일(bold 24px, lineHeight 38)로 렌더한다(SOO-1108 #1).
   const footerDate = formatTreatyFooterDate(new Date());
-  lines.push({ text: footerDate, font: footerFont, lineHeight: 28, align: 'center', gapAfter: 0 });
+  lines.push({ text: footerDate, font: article10Font, lineHeight: 38, align: 'center', gapAfter: 0 });
 
   // 전체 높이 계산 (최상단 로고 이미지 영역 포함)
   const PADDING_TOP = 48;
@@ -268,6 +285,7 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
   let height = PADDING_TOP;
   if (hasLogo) height += logoSize.height + LOGO_GAP_AFTER;
   for (const line of lines) height += line.lineHeight + line.gapAfter;
+  if (hasFooterImage) height += FOOTER_IMAGE_GAP_BEFORE + footerImageSize.height;
   height += PADDING_BOTTOM;
 
   // 실제 렌더 (고해상도 보장을 위해 정수 픽셀 사용)
@@ -299,6 +317,14 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
     const x = line.align === 'center' ? PRINT_WIDTH / 2 : MARGIN_X;
     ctx.fillText(line.text, x, y);
     y += line.lineHeight + line.gapAfter;
+  }
+
+  // 최하단 이미지: 콘텐츠 폭 기준 비율 유지·중앙 정렬로 그린다(SOO-1108 #2).
+  if (hasFooterImage && footerImage) {
+    y += FOOTER_IMAGE_GAP_BEFORE;
+    const footerX = Math.round((PRINT_WIDTH - footerImageSize.width) / 2);
+    ctx.drawImage(footerImage, footerX, y, footerImageSize.width, footerImageSize.height);
+    y += footerImageSize.height;
   }
 
   return canvas;
