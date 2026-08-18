@@ -923,6 +923,39 @@ export function interleavedReleaseSlots(cardCount: number, circleCount: number):
 }
 
 /**
+ * 그룹 단위 릴리즈 순서 배정(SOO-1109 — 보더 요청 "단어, 보라박스, 보라박스, 단어" 순).
+ *
+ * `interleavedReleaseSlots`(균등 분포)와 달리, 낙하 순서를 **결정적 패턴**으로 고정한다.
+ * `wordsPerGroup`개 단어 → `squaresPerGroup`개 장식 사각형을 한 그룹으로 묶어 반복 배치한다.
+ * 기본값(1,2)이면 단어·사각형·사각형·단어·사각형·사각형… 순서가 된다.
+ * 한쪽이 먼저 소진되면 남은 항목만 이어서 배치한다(순서 유지, 무한 루프 없음).
+ *
+ * @returns wordSlots[i] = i번째 단어의 릴리즈 슬롯, squareSlots[j] = j번째 사각형의 릴리즈 슬롯.
+ *          슬롯이 작을수록 먼저(아래에서) 떨어진다. 두 배열의 슬롯은 0..(word+square-1) 무중복.
+ */
+export function groupedReleaseOrder(
+  wordCount: number,
+  squareCount: number,
+  wordsPerGroup = 1,
+  squaresPerGroup = 2,
+): { wordSlots: number[]; squareSlots: number[] } {
+  const wordSlots: number[] = [];
+  const squareSlots: number[] = [];
+  const wc = Math.max(0, Math.floor(wordCount));
+  const sc = Math.max(0, Math.floor(squareCount));
+  const wg = Math.max(1, Math.floor(wordsPerGroup));
+  const sg = Math.max(0, Math.floor(squaresPerGroup));
+  let wi = 0;
+  let si = 0;
+  let slot = 0;
+  while (wi < wc || si < sc) {
+    for (let k = 0; k < wg && wi < wc; k++) wordSlots[wi++] = slot++;
+    for (let k = 0; k < sg && si < sc; k++) squareSlots[si++] = slot++;
+  }
+  return { wordSlots, squareSlots };
+}
+
+/**
  * 균형 적재용 결정적 x-레인 중심 좌표(SOO-1063).
  * 폭을 laneCount 개의 균등한 세로 레인으로 나눠 각 레인의 중심 x(px)를 반환한다.
  * 좌우 대칭(가장 바깥 레인은 마진 안쪽 끝, 가운데 레인은 화면 중앙)이라

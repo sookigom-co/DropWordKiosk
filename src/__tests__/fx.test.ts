@@ -31,6 +31,7 @@ import {
   clampRange,
   easeOutCubic,
   firstFreeSpawn,
+  groupedReleaseOrder,
   growthRadius,
   interleavedReleaseSlots,
   maxCirclePx,
@@ -545,6 +546,39 @@ describe('interleavedReleaseSlots (SOO-1054 후속 — 카드·원 균등 교차
     const all = new Set([...circleSet, ...cardSlots]);
     expect(all.size).toBe(total);
     for (let s = 0; s < total; s++) expect(all.has(s)).toBe(true);
+  });
+});
+
+describe('groupedReleaseOrder (SOO-1109 — 단어·사각형·사각형 낙하 순서)', () => {
+  it('기본 패턴(1단어·2사각형)이 단어·사각형·사각형·단어… 순서로 슬롯을 배정', () => {
+    const { wordSlots, squareSlots } = groupedReleaseOrder(4, 4);
+    // 릴리즈 슬롯을 타입 시퀀스로 복원
+    const seq: string[] = [];
+    wordSlots.forEach((s) => (seq[s] = 'W'));
+    squareSlots.forEach((s) => (seq[s] = 'S'));
+    expect(seq).toEqual(['W', 'S', 'S', 'W', 'S', 'S', 'W', 'W']);
+  });
+  it('18단어·9사각형: 슬롯이 0..26 를 무중복으로 정확히 덮음', () => {
+    const words = 18;
+    const squares = 9;
+    const { wordSlots, squareSlots } = groupedReleaseOrder(words, squares);
+    expect(wordSlots).toHaveLength(words);
+    expect(squareSlots).toHaveLength(squares);
+    const all = new Set([...wordSlots, ...squareSlots]);
+    expect(all.size).toBe(words + squares);
+    for (let s = 0; s < words + squares; s++) expect(all.has(s)).toBe(true);
+  });
+  it('사각형이 소진되면 남은 단어가 순서대로 이어짐', () => {
+    // 3단어·2사각형 → W S S W W
+    const { wordSlots, squareSlots } = groupedReleaseOrder(3, 2);
+    const seq: string[] = [];
+    wordSlots.forEach((s) => (seq[s] = 'W'));
+    squareSlots.forEach((s) => (seq[s] = 'S'));
+    expect(seq).toEqual(['W', 'S', 'S', 'W', 'W']);
+  });
+  it('한쪽 개수가 0이어도 무한 루프 없이 나머지를 배치', () => {
+    expect(groupedReleaseOrder(0, 3)).toEqual({ wordSlots: [], squareSlots: [0, 1, 2] });
+    expect(groupedReleaseOrder(3, 0)).toEqual({ wordSlots: [0, 1, 2], squareSlots: [] });
   });
 });
 
