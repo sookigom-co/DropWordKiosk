@@ -471,8 +471,8 @@ describe('areaFilled (SOO-1049 후속 4/5 채움 중단)', () => {
   it('면적이 임계 미만이면 false', () => {
     expect(areaFilled([{ x: 50, y: 50, r: 10 }], 100, 100, 0.5)).toBe(false);
   });
-  it('FILL_STOP_RATIO 는 1(가득 채움 — 면적 상한 조기 중단 없음)', () => {
-    expect(FILL_STOP_RATIO).toBe(1);
+  it('FILL_STOP_RATIO 는 0.9(SOO-1112 — 100%→90%, 여유 공간 확보로 겹침·떨림 방지)', () => {
+    expect(FILL_STOP_RATIO).toBe(0.9);
   });
 });
 
@@ -724,11 +724,9 @@ describe('randomSpawnPoint (SOO-1088 후속 완전 랜덤 스폰 위치)', () =>
     expect(Number.isFinite(p.x)).toBe(true);
     expect(Number.isFinite(p.y)).toBe(true);
   });
-  // SOO-1112: 스폰은 자유 공간 회피 없이 순수 랜덤이며 겹침은 물리 충돌이 밀어내 해소한다.
-  // 자유 공간 검사(firstFreeSpawn)를 스폰 경로에서 걷어냈으므로, "화면 이탈 방지"만이 스폰
-  // 단계에 남는 유일한 불변식이다 — 어떤 난수 조합에서도 버블 중심이 [R, size−R] 안에 있어
-  // 반지름만큼의 원이 화면을 벗어나지 않음을 촘촘한 스윕으로 회귀 검증한다.
-  it('SOO-1112 순수 랜덤 스폰 스윕 — 어떤 난수에서도 화면 이탈 없음(경계 회피만 보장)', () => {
+  // 랜덤 스폰 후보는 어떤 난수 조합에서도 버블 중심이 [R, size−R] 안에 있어 반지름만큼의
+  // 원이 화면을 벗어나지 않음(화면 이탈 방지 불변식)을 촘촘한 스윕으로 회귀 검증한다.
+  it('랜덤 스폰 스윕 — 어떤 난수에서도 화면 이탈 없음(경계 회피 보장)', () => {
     for (let i = 0; i <= 20; i++) {
       for (let j = 0; j <= 20; j++) {
         const p = randomSpawnPoint(W, H, i / 20, j / 20, R);
@@ -738,6 +736,60 @@ describe('randomSpawnPoint (SOO-1088 후속 완전 랜덤 스폰 위치)', () =>
         expect(p.y).toBeLessThanOrEqual(H - R);
       }
     }
+  });
+});
+
+// SOO-1112 재-비중첩(보더 피드백: 겹친 채 태어나 부르르 떨림 제거).
+// 훅(useStep1Physics)의 스폰 경로는 randomSpawnPoint 로 후보를 만든 뒤 firstFreeSpawn 으로
+// **목표(성장 후) 반지름 + 여유** 가 이웃(버블 목표 크기·단어 실측 반지름)과 겹치지 않는 첫
+// 자리를 고른다. 순수 값 헬퍼 조합만으로 그 불변식을 모사해, 반환 자리가 항상 비중첩임을 검증한다.
+describe('SOO-1112 비중첩 스폰 자리 사전 계산(firstFreeSpawn ∘ randomSpawnPoint)', () => {
+  const W = 764;
+  const H = 1024;
+  const PAD = 4;
+  // 화면 중앙을 큰 원들이 점유. 목표 반지름 40 짜리 신규 버블이 겹치지 않는 자리를 찾아야 한다.
+  const occupied: Circle[] = [
+    { x: 200, y: 300, r: 60 },
+    { x: 500, y: 300, r: 60 },
+    { x: 380, y: 700, r: 80 },
+  ];
+  it('반환된 자리는 모든 점유 원과 목표 반지름 기준 비중첩(겹침 0)', () => {
+    const targetR = 40;
+    // 결정적 후보 스윕(rx·ry 격자) — 난수 대신 균등 격자로 재현 가능한 후보를 만든다.
+    const candidates: { x: number; y: number }[] = [];
+    for (let i = 0; i <= 12; i++) {
+      for (let j = 0; j <= 12; j++) {
+        candidates.push(randomSpawnPoint(W, H, i / 12, j / 12, targetR));
+      }
+    }
+    const spot = firstFreeSpawn(candidates, targetR, occupied, PAD);
+    expect(spot).not.toBeNull();
+    for (const o of occupied) {
+      // 목표 반지름 원이 점유 원과 pad 여유까지 두고 떨어져 있어야 한다.
+      expect(circlesOverlap(spot!.x, spot!.y, targetR, o.x, o.y, o.r, PAD)).toBe(false);
+    }
+    // 목표 크기 원이 화면 안(경계 이탈 없음)에도 들어와야 한다.
+    expect(spot!.x).toBeGreaterThanOrEqual(targetR);
+    expect(spot!.x).toBeLessThanOrEqual(W - targetR);
+    expect(spot!.y).toBeGreaterThanOrEqual(targetR);
+    expect(spot!.y).toBeLessThanOrEqual(H - targetR);
+  });
+  it('빈 자리가 전혀 없으면 null 을 반환해 스폰을 보류(겹친 채 생성 금지)', () => {
+    // 스테이지 전체를 덮는 거대 점유 → 어떤 후보도 자유롭지 않다.
+    const full: Circle[] = [{ x: W / 2, y: H / 2, r: Math.max(W, H) }];
+    const targetR = 40;
+    const candidates: { x: number; y: number }[] = [];
+    for (let i = 0; i <= 8; i++) {
+      for (let j = 0; j <= 8; j++) {
+        candidates.push(randomSpawnPoint(W, H, i / 8, j / 8, targetR));
+      }
+    }
+    expect(firstFreeSpawn(candidates, targetR, full, PAD)).toBeNull();
+  });
+  it('성장 상한(maxGrowRadius)은 이웃과 겹치기 직전에서 멈춘다', () => {
+    // 중심 (0,0) 버블이 (100,0) 반지름 30 이웃을 향해 성장 시, pad=4 를 두고 66 에서 상한.
+    const others: Circle[] = [{ x: 100, y: 0, r: 30 }];
+    expect(maxGrowRadius(0, 0, 90, others, PAD)).toBeCloseTo(66);
   });
 });
 

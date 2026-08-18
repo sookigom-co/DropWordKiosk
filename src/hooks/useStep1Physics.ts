@@ -19,7 +19,9 @@ import {
   burstCount,
   easeOutCubic,
   FILL_STOP_RATIO,
+  firstFreeSpawn,
   growthRadius,
+  maxGrowRadius,
   purpleColor,
   randomSpawnPoint,
   randomSpawnZone,
@@ -40,14 +42,21 @@ export interface PurpleView {
 
 /**
  * 세션 동안 유지되는 보라색 버블 상한(성능 안전판).
- * 버블은 소멸하지 않으므로(SOO-1049) 랜덤 스폰 후 물리 충돌 밀어내기가 실질 밀도를 만들지만,
+ * 버블은 소멸하지 않으므로(SOO-1049) 비중첩 스폰(빈 공간 소진)이 실질 상한을 만들지만,
  * 라즈베리파이 부하 폭주를 막기 위한 하드 캡을 둔다.
  */
 const MAX_PURPLE = 160;
 /** 단어 원 낙하 시작 간격(ms) — 우수수 떨어지는 스태거. */
 const RELEASE_STAGGER = 110;
-/** 보라 버블 시작 반지름(px) — 화면 어디서든 작게 태어나 상승하며 목표 크기로 성장. */
+/** 보라 버블 시작 반지름(px) — 작게 태어나 목표 크기까지 성장(자리는 목표 크기 기준 예약). */
 const PURPLE_START_R = 6;
+/**
+ * 스폰 자유 공간 후보 시도 횟수(SOO-1112) — 이 횟수 안에 목표(성장 후) 반지름이 이웃과
+ * 겹치지 않는 랜덤 자리를 못 찾으면 이번 스폰을 건너뛴다(겹친 채 생성 금지, 기존 버블은 영속).
+ */
+const SPAWN_TRIES = 30;
+/** 스폰·성장 시 이웃과 유지할 최소 여유 간격(px) — 바짝 붙어 태어나는 떨림 방지. */
+const SPAWN_PAD = 4;
 /** 정착 판정 속도 임계값(matter speed). 이 이하가 유지되면 멈춘 것으로 본다. */
 const SETTLE_SPEED = 0.4;
 /** 정착 유지 시간(ms) — 임계 이하가 이만큼 지속돼야 낙하 완료로 확정. */
@@ -115,8 +124,10 @@ export interface Step1PhysicsApi {
  * Step1 물리 시뮬레이션 구동 훅(SOO-1048 → SOO-1057 개편).
  * matter-js 로 단어 원 중력 낙하·쌓임을 시뮬레이션하고, 낙하 완료 후에는 보라색
  * 버블이 **화면 전 영역의 랜덤 위치에서 생성되어**(동적 강체) 부력 구역에 따라 떠오르거나
- * 가라앉으며 단어를 물리적으로 밀어 올린다. 버블끼리는 랜덤 스폰 후 동적 충돌로 서로
- * 밀어내(SOO-1112) 정착 상태에서 겹치지 않는다 — 스폰 자리 회피가 아니라 밀어내기로 해소.
+ * 가라앉으며 단어를 물리적으로 밀어 올린다. 버블은 **스폰 전에 랜덤 자리를 미리 계산해
+ * 목표(성장 후) 반지름이 이웃 버블·단어와 겹치지 않는 곳에서만 태어난다**(SOO-1112 보더
+ * 피드백: 겹친 채 태어나 솔버가 밀어내며 "부르르 떨리는" 현상 제거). 빈자리가 없으면 이번
+ * 틱 스폰을 건너뛰고(영속 유지), 화면은 90%(FILL_STOP_RATIO)까지만 채운다.
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
  */
 export function useStep1Physics(
@@ -204,12 +215,15 @@ export function useStep1Physics(
 
     /**
      * 현재 점유 영역(기존 보라 버블 + 낙하 완료된 단어 원)을 원 목록으로 수집.
-     * 면적 채움 판정(스폰 중단)에 쓴다.
+     * 버블은 **목표(성장 후) 반지름**으로 예약해, 아직 다 자라지 않았어도 최종 점유 자리를
+     * 미리 반영한다(SOO-1112). 이 목록을 (1) 신규 스폰 자유 공간 검사, (2) 면적 채움 판정
+     * (스폰 중단, FILL_STOP_RATIO=0.9) 양쪽에 공용으로 쓴다.
      */
-    const collectOccupied = (): Circle[] => {
+    const collectFootprint = (): Circle[] => {
       const occupied: Circle[] = [];
       for (const p of purpleSims) {
-        occupied.push({ x: p.body.position.x, y: p.body.position.y, r: p.curR });
+        // 성장 후 자리를 미리 예약 — 신규 버블이 이웃의 최종 크기를 피해 태어난다.
+        occupied.push({ x: p.body.position.x, y: p.body.position.y, r: Math.max(p.curR, p.targetR) });
       }
       for (const ws of wordSims) {
         if (ws.released) {
@@ -220,25 +234,33 @@ export function useStep1Physics(
     };
 
     /**
-     * 보라 버블 하나 스폰(SOO-1057 → SOO-1059 이원화 → SOO-1088 삼등분→완전 랜덤 → SOO-1112).
-     * 위치는 `randomSpawnPoint` 로 스테이지 전 영역에서 균일 난수(반지름 클램프로 화면 이탈만
-     * 방지) — 순수 랜덤이라 이미 태어난 버블·단어와 겹친 자리에서도 그대로 태어난다.
-     * 겹침은 "스폰 자리 회피"가 아니라 **동적 강체 충돌로 서로 밀어내며 해소**한다(보더
-     * SOO-1112: "생성은 랜덤에서 시작하되 밀어내야지 겹쳐지면 안 됨"). 버블은 작은 시작
-     * 반지름(PURPLE_START_R=6)으로 태어난 뒤 랜덤 목표 크기로 성장하고, 성장 시 커진 충돌
-     * 형상이 다시 이웃을 밀어내므로 어떤 정착 상태에서도 비중첩이 유지된다.
+     * 보라 버블 하나 스폰(SOO-1057 → SOO-1059 이원화 → SOO-1088 완전 랜덤 → SOO-1112 재-비중첩).
+     * 보더 피드백("겹친 채 태어나 부르르 떨림")에 따라 **스폰 전에 랜덤 자리를 미리 계산**한다:
+     * 먼저 목표(성장 후) 반지름을 뽑고, `randomSpawnPoint` 로 전 영역 난수 후보를 SPAWN_TRIES
+     * 만큼 만든 뒤 `firstFreeSpawn` 으로 **목표 반지름 + 여유(SPAWN_PAD)** 가 이웃 버블·단어와
+     * 겹치지 않는 첫 자리를 고른다. 자리를 찾으면 그 곳에서 작은 시작 반지름으로 태어나 자기
+     * 예약 공간 안에서 목표 크기까지 성장하므로 **생성 순간에도 성장 중에도 겹치지 않는다**.
+     * 위치는 여전히 전 영역 균일 난수라 완전 랜덤 분포(SOO-1088)를 유지한다.
+     * 빈 자리가 없으면(화면 포화) 이번 스폰을 건너뛰고 false 를 반환한다(기존 버블은 영속).
      * 거동은 인자 `zone`(호출부가 `randomSpawnZone` 으로 난수 선택)에 따른 부력 배율로 결정된다:
      *  - 'bottom' : 부력(BUOYANCY_FACTOR>1)으로 상승
      *  - 'top'    : 감쇠 중력(DESCEND_FACTOR<1)으로 하강
      *  - 'middle' : 중립 부력(NEUTRAL_FACTOR=1)으로 제자리 부유
-     * 항상 생성하며(회피·보류 없음) 상한(MAX_PURPLE)까지는 true 를 반환한다.
      */
     const trySpawnPurple = (nowMs: number, zone: SpawnZone): boolean => {
       const s = settingsRef.current;
-      // 완전 랜덤 스폰(SOO-1112): 자유 공간 검사·회피 없이 전 영역 난수 한 점에서 생성.
-      // 겹치면 동적 충돌이 밀어낸다. randomSpawnPoint 의 반지름 클램프로 화면 이탈만 막는다.
-      const spot = randomSpawnPoint(width, height, Math.random(), Math.random(), PURPLE_START_R);
       const targetR = randomTargetPx(bubblePx, s.maxSizeRatio, Math.random()) / 2;
+      // 비중첩 스폰(SOO-1112): 목표 반지름이 들어갈 자유 공간을 사전 계산해 그 자리에서만 생성.
+      // randomSpawnPoint 에 targetR 을 넘겨 후보 중심을 [targetR, size−targetR] 로 클램프 →
+      // 다 자란 버블도 화면 안에 들어온다. firstFreeSpawn 이 이웃(목표 크기 예약)과 겹치지
+      // 않는 첫 후보를 고르고, 없으면 null → 이번 스폰 보류(겹친 채 생성 금지).
+      const footprint = collectFootprint();
+      const candidates: { x: number; y: number }[] = [];
+      for (let k = 0; k < SPAWN_TRIES; k++) {
+        candidates.push(randomSpawnPoint(width, height, Math.random(), Math.random(), targetR));
+      }
+      const spot = firstFreeSpawn(candidates, targetR, footprint, SPAWN_PAD);
+      if (!spot) return false; // 목표 크기가 들어갈 빈 자리 없음 → 이번 스폰 건너뜀(영속 유지).
       const body = makeBubbleBody(spot.x, spot.y, PURPLE_START_R);
       addBody(world, body);
       const id = ++purpleId;
@@ -334,8 +356,8 @@ export function useStep1Physics(
         let spawnedAny = false;
         for (let b = 0; b < burst; b++) {
           if (purpleSims.length >= MAX_PURPLE) break;
-          // 화면이 가득 차면 신규 스폰 중단(이미 생성된 버블은 유지 — 영속).
-          if (areaFilled(collectOccupied(), width, height, FILL_STOP_RATIO)) break;
+          // 화면이 90% 차면 신규 스폰 중단(이미 생성된 버블은 유지 — 영속). 목표 크기 예약 기준.
+          if (areaFilled(collectFootprint(), width, height, FILL_STOP_RATIO)) break;
           // 완전 랜덤(SOO-1088 후속): 위치는 randomSpawnPoint, 거동은 randomSpawnZone 균등 난수.
           if (trySpawnPurple(nowMs, randomSpawnZone(Math.random()))) {
             spawnedAny = true;
@@ -344,16 +366,32 @@ export function useStep1Physics(
         if (spawnedAny) lastSpawn = nowMs;
       }
 
-      // 보라 버블 성장(영속 — 수축·제거 없음). 동적 강체라 성장 시 겹치면 충돌로 밀려난다.
+      // 보라 버블 성장(영속 — 수축·제거 없음). 스폰 시 목표 크기 자리를 예약하므로 대개
+      // 이웃과 겹치지 않고 목표까지 자란다. 다만 부력 이동으로 이웃이 근접했을 때를 대비해
+      // 성장 구간 동안에만 maxGrowRadius 로 이웃(현재 반지름) 비중첩 상한을 건다(SOO-1112 #3).
       for (let i = 0; i < purpleSims.length; i++) {
         const p = purpleSims[i];
         const age = nowMs - p.bornAt;
-        const desired =
-          age >= p.growDurMs
-            ? p.targetR
-            : growthRadius(PURPLE_START_R, p.targetR, age / 1000, p.growDurMs / 1000);
-        // 단조 증가: 절대 줄지 않는다(버블 영속).
-        const r = Math.max(p.curR, desired);
+        const growing = age < p.growDurMs;
+        const desired = growing
+          ? growthRadius(PURPLE_START_R, p.targetR, age / 1000, p.growDurMs / 1000)
+          : p.targetR;
+        let capped = desired;
+        if (growing) {
+          // 성장 중에만 이웃 비중첩 상한 계산(성장 완료 후엔 스킵 → 라즈베리파이 부하 억제).
+          const others: Circle[] = [];
+          for (let j = 0; j < purpleSims.length; j++) {
+            if (j === i) continue;
+            const q = purpleSims[j];
+            others.push({ x: q.body.position.x, y: q.body.position.y, r: q.curR });
+          }
+          capped = Math.min(
+            desired,
+            maxGrowRadius(p.body.position.x, p.body.position.y, desired, others, SPAWN_PAD),
+          );
+        }
+        // 단조 증가: 절대 줄지 않는다(버블 영속). 상한이 현재보다 작아도 유지(수축 금지).
+        const r = Math.max(p.curR, capped);
         p.curR = r;
         setCircleRadius(p.body, r);
         const alpha = 0.15 + 0.4 * easeOutCubic(Math.min(1, age / p.growDurMs));
