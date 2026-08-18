@@ -13,6 +13,9 @@ import {
   MAX_WORD_ANGLE,
   WORD_DENSITY,
   BUBBLE_DENSITY,
+  UNIFORM_BUBBLE_MASS,
+  setUniformBubbleMass,
+  setCircleRadius,
 } from '../lib/physics';
 import Matter from 'matter-js';
 
@@ -69,12 +72,24 @@ describe('단어·버블 동일 비중(밀도) — 보더 요청 SOO-1112', () =
   it('단어 밀도가 버블 밀도와 같다(SOO-1058 되돌림)', () => {
     expect(WORD_DENSITY).toBe(BUBBLE_DENSITY);
   });
+});
 
-  it('같은 반지름이면 단어 원과 버블의 질량이 같다', () => {
-    const word = makeWordBody(0, 0, R);
-    const bubble = makeBubbleBody(0, 0, R);
-    // 면적 동일 + 밀도 동일 → 질량 동일.
-    expect(word.mass).toBeCloseTo(bubble.mass, 5);
+describe('버블 무게 균일화 — 크기와 무관하게 동일(보더 요청 SOO-1112 후속)', () => {
+  it('반지름이 달라도 버블 질량이 모두 UNIFORM_BUBBLE_MASS 로 동일하다', () => {
+    const small = makeBubbleBody(0, 0, 6);
+    const big = makeBubbleBody(0, 0, 60);
+    // 밀도 기반이면 big.mass 가 (60/6)²=100배가 되지만, 균일화로 동일해야 한다.
+    expect(small.mass).toBeCloseTo(UNIFORM_BUBBLE_MASS, 5);
+    expect(big.mass).toBeCloseTo(UNIFORM_BUBBLE_MASS, 5);
+    expect(small.mass).toBeCloseTo(big.mass, 5);
+  });
+
+  it('성장(setCircleRadius)으로 반지름이 커져도 setUniformBubbleMass 로 질량이 유지된다', () => {
+    const bubble = makeBubbleBody(0, 0, 6);
+    setCircleRadius(bubble, 48); // Body.scale 이 질량을 면적 비례로 키움
+    expect(bubble.mass).toBeGreaterThan(UNIFORM_BUBBLE_MASS); // 재고정 전엔 커진다
+    setUniformBubbleMass(bubble); // 훅이 성장 후 매 틱 호출하는 재고정
+    expect(bubble.mass).toBeCloseTo(UNIFORM_BUBBLE_MASS, 5);
   });
 });
 

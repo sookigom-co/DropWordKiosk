@@ -126,7 +126,7 @@ export function makeBoxBody(x: number, y: number, width: number, height: number)
  * 서로 겹치지 않는다(비중첩). world 에는 아직 추가하지 않는다.
  */
 export function makeBubbleBody(x: number, y: number, radius: number): Matter.Body {
-  return Bodies.circle(x, y, Math.max(1, radius), {
+  const body = Bodies.circle(x, y, Math.max(1, radius), {
     // 튕김 완화(SOO-1112 후속, 보더 요청 "충격량 완화를 조금 더 줄여"): 0.08 → 0.02 → 0.
     // 낙하·충돌 반발을 완전히 제거해 버블이 튀지 않고 차곡차곡 쌓인다.
     restitution: 0,
@@ -138,6 +138,28 @@ export function makeBubbleBody(x: number, y: number, radius: number): Matter.Bod
     // 같은 반지름이면 단어와 질량이 같아 같은 비중으로 함께 아래로 가라앉는다.
     density: BUBBLE_DENSITY,
   });
+  // 무게 균일화(SOO-1112 후속, 보더 "원의 크기와 상관없이 무게를 동일하게"):
+  // 밀도 기반이면 mass = density·π·r² 라 큰 버블일수록 무거워 단어를 더 세게 누른다.
+  // 스폰 직후 UNIFORM_BUBBLE_MASS 로 질량을 고정해, 버블 크기와 무관하게 동일한 무게로
+  // 단어를 밀어내도록 한다(성장 시에도 setUniformBubbleMass 로 재적용).
+  setUniformBubbleMass(body);
+  return body;
+}
+
+/**
+ * 버블 균일 질량(SOO-1112 후속) — 보더 요청 "원의 크기와 상관없이 무게를 동일하게".
+ *
+ * 밀도 기반 질량(density·π·r²)은 반지름 제곱에 비례해, 큰 버블이 단어를 과하게 눌렀다.
+ * 모든 버블의 질량을 이 상수로 고정하면 시각 크기와 무관하게 동일한 무게로 거동한다.
+ * 값은 기준 단어 원(density BUBBLE_DENSITY, 반지름 ≈36px = 72px 원)의 질량과 같은
+ * 크기 규모로 두어, 버블 한 개가 단어 한 개와 비슷한 무게가 되게 한다. Body.scale(성장)이
+ * 질량을 다시 면적 비례로 바꾸므로, 성장 후에도 setUniformBubbleMass 로 재고정한다.
+ */
+export const UNIFORM_BUBBLE_MASS = BUBBLE_DENSITY * Math.PI * 36 * 36;
+
+/** 버블 질량을 UNIFORM_BUBBLE_MASS 로 고정(생성·성장 후 호출). */
+export function setUniformBubbleMass(body: Matter.Body): void {
+  Body.setMass(body, UNIFORM_BUBBLE_MASS);
 }
 
 /**

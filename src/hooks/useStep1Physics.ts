@@ -8,6 +8,7 @@ import {
   clampBodyToStage,
   clampBodyAngle,
   setCircleRadius,
+  setUniformBubbleMass,
   setBodyPosition,
   stepEngine,
   bodyCenter,
@@ -391,6 +392,9 @@ export function useStep1Physics(
         const r = Math.max(p.curR, capped);
         p.curR = r;
         setCircleRadius(p.body, r);
+        // 성장(Body.scale)은 질량을 면적 비례로 재계산하므로, 크기와 무관한 균일 무게를
+        // 유지하려면 매 성장 후 UNIFORM_BUBBLE_MASS 로 재고정한다(SOO-1112 후속).
+        setUniformBubbleMass(p.body);
         const alpha = 0.15 + 0.4 * easeOutCubic(Math.min(1, age / p.growDurMs));
         const el = purpleEls.current.get(p.id);
         if (el) writePurple(el, bodyCenter(p.body), r, alpha);
