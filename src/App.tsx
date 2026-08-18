@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useKiosk } from './state/useKiosk';
 import { useIdleTimeout } from './lib/useIdleTimeout';
 import { IDLE_TIMEOUT_MS } from './state/config';
-import { createPrintClient, type PrinterState } from './lib/printClient';
+import { createPrintClient, isPreviewMode, type PrinterState } from './lib/printClient';
 import { Logo } from './components/Logo';
 import { StartScreen } from './screens/StartScreen';
 import { IntroScreen } from './screens/IntroScreen';
@@ -16,6 +16,7 @@ import { ResultScreen } from './screens/ResultScreen';
 import { PrintingScreen } from './screens/PrintingScreen';
 import { DoneScreen } from './screens/DoneScreen';
 import { PrintErrorScreen } from './screens/PrintErrorScreen';
+import { PreviewScreen } from './screens/PreviewScreen';
 
 /** 무입력 타임아웃을 감시할 대화형 화면들(자동 진행 화면은 제외) */
 const IDLE_WATCHED = new Set([
@@ -33,6 +34,7 @@ const IDLE_WATCHED = new Set([
 export default function App() {
   const kiosk = useKiosk();
   const client = useMemo(() => createPrintClient(), []);
+  const preview = useMemo(() => isPreviewMode(), []);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [errorState, setErrorState] = useState<PrinterState>('ERROR');
 
@@ -61,9 +63,21 @@ export default function App() {
     [kiosk],
   );
 
+  const handlePreview = useCallback(
+    (url: string) => {
+      setPreviewUrl(url);
+      kiosk.go('preview');
+    },
+    [kiosk],
+  );
+
   return (
     <div className="app-root">
-      {client.mock && <div className="mock-badge">MOCK</div>}
+      {preview ? (
+        <div className="mock-badge">PREVIEW</div>
+      ) : (
+        client.mock && <div className="mock-badge">MOCK</div>
+      )}
       <Logo />
       {renderStep()}
     </div>
@@ -130,8 +144,12 @@ export default function App() {
             sentence={kiosk.sentence ?? ''}
             onSuccess={handleSuccess}
             onError={handleError}
+            preview={preview}
+            onPreview={handlePreview}
           />
         );
+      case 'preview':
+        return <PreviewScreen previewUrl={previewUrl ?? ''} onClose={resetAll} />;
       case 'done':
         return <DoneScreen onReset={resetAll} previewUrl={previewUrl} mock={client.mock} />;
       case 'error':

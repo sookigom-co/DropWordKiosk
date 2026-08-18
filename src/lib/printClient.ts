@@ -327,6 +327,27 @@ export function resolveAgentBase(search: string, fallback: string = DEFAULT_BASE
 }
 
 /**
+ * 프리뷰 모드 판정(순수 함수) — 빌드타임 env 와 런타임 쿼리를 모두 본다.
+ *   - VITE_PRINT_PREVIEW=1  → 프리뷰 모드(빌드타임, 필수)
+ *   - ?preview=1            → 프리뷰 모드(런타임, 재빌드 없이 시험)
+ * 프리뷰 모드에서는 프린터 클라이언트 호출 자체를 생략하고 생성된 PNG 를 화면에 표시한다.
+ * mock(VITE_PRINT_MOCK) 과는 독립적으로 동작한다.
+ */
+export function resolvePreviewMode(env: string | undefined, search: string): boolean {
+  if (env === '1') return true;
+  return new URLSearchParams(search).get('preview') === '1';
+}
+
+/** 현재 실행 환경(빌드 env + window 쿼리)에서 프리뷰 모드 여부를 판정한다. */
+export function isPreviewMode(): boolean {
+  const search = typeof window !== 'undefined' ? window.location.search : '';
+  return resolvePreviewMode(
+    import.meta.env.VITE_PRINT_PREVIEW as string | undefined,
+    search,
+  );
+}
+
+/**
  * 환경/쿼리 플래그로 클라이언트를 생성한다.
  *   - VITE_PRINT_MOCK=1  또는  ?mock=1     → mock 모드
  *   - ?printer=no_paper 등                 → mock 강제 상태(실패 분기 테스트)
