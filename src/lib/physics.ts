@@ -43,12 +43,13 @@ export const WORD_BOX_SCALE = 1.1;
 export const BUBBLE_DENSITY = 0.0016;
 
 /**
- * 단어 상자 밀도(SOO-1058) — 버블보다 무겁게(약 1.9배) 두어 "가라앉는 질감"을 만든다.
- * 단어에는 부력을 싣지 않으므로 오직 중력만 받아 하단에 가라앉아 머무르고, 떠오르는
- * 버블이 밀어 올려도(버블 밀도 대비 무거워) 과도하게 떠오르지 않고 살짝 밀렸다가 다시
- * 가라앉는다. 보더 4차 요청(SOO-1047 코멘트 `90ac4a96`): "단어 자체는 살짝 무겁게".
+ * 단어 원 밀도 — 보더 요청(SOO-1112): "단어 공과 버블은 같은 비중을 지니는 걸로".
+ * SOO-1058(단어를 버블보다 ~1.9배 무겁게)을 되돌려 버블과 **동일 밀도**로 둔다.
+ * 같은 반지름이면 단어와 버블의 질량이 같아, 떠오르는 버블이 단어를 동일한 비중으로
+ * 자연스럽게 밀어 올린다. 단어에는 여전히 부력을 싣지 않으므로 중력만 받아 가라앉되,
+ * 버블에 밀릴 때는 동밀도라 함께 떠오르는 질감이 된다.
  */
-export const WORD_DENSITY = 0.003;
+export const WORD_DENSITY = BUBBLE_DENSITY;
 
 /**
  * 필드 크기에 맞는 물리 월드 생성. 좌·우·바닥에 정적 벽을 두어
@@ -83,7 +84,7 @@ export function makeWordBody(x: number, y: number, radius: number): Matter.Body 
     friction: 0.55,
     frictionStatic: 0.9,
     frictionAir: 0.01,
-    // 버블보다 무겁게(WORD_DENSITY > BUBBLE_DENSITY) — 가라앉는 질감(SOO-1058).
+    // 버블과 동일 비중(WORD_DENSITY === BUBBLE_DENSITY) — 보더 요청(SOO-1112).
     density: WORD_DENSITY,
   });
 }
@@ -132,7 +133,7 @@ export function makeBubbleBody(x: number, y: number, radius: number): Matter.Bod
     // 버블 기준 밀도(BUBBLE_DENSITY). 상승 속도는 밀도와 무관(가속도=g·scale·(factor−1))
     // 하지만, 순 부력(=mass·g·scale·(factor−1))은 질량에 비례하므로 밀도를 충분히 둬야
     // 떠오르는 버블이 단어를 밀어 올릴 힘을 갖는다(SOO-1057 요구 5). 단어(WORD_DENSITY)는
-    // 이보다 무거워, 버블이 밀어도 살짝만 밀리고 다시 가라앉는다(SOO-1058).
+    // 이제 버블과 동일 비중이라(SOO-1112), 버블이 밀면 같은 비중으로 함께 밀려 올라간다.
     density: BUBBLE_DENSITY,
   });
 }
