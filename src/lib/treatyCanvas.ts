@@ -27,6 +27,23 @@ export function resolvePrintWidth(raw: string | undefined): number {
 
 export const PRINT_WIDTH = resolvePrintWidth(import.meta.env.VITE_PRINT_WIDTH);
 
+/** 인쇄 포맷 종류. portrait(세로, 기본) | landscape(가로). */
+export type PrintType = 'portrait' | 'landscape';
+
+/** 인쇄 포맷 기본값 — 미지정·이상값이면 기존 세로 출력을 그대로 유지한다(회귀 0). */
+export const DEFAULT_PRINT_TYPE: PrintType = 'portrait';
+
+/**
+ * VITE_PRINT_TYPE(빌드타임) 재정의를 파싱한다(resolvePrintWidth 선례).
+ *   - 'landscape'(대소문자·공백 무시) → landscape
+ *   - 그 외(미지정·빈 값·'portrait'·알 수 없는 값) → portrait 기본값
+ */
+export function resolvePrintType(raw: string | undefined): PrintType {
+  return (raw ?? '').trim().toLowerCase() === 'landscape' ? 'landscape' : 'portrait';
+}
+
+export const PRINT_TYPE = resolvePrintType(import.meta.env.VITE_PRINT_TYPE);
+
 const FONT_FAMILY = "'Pretendard', 'Gowun Dodum', sans-serif";
 // 폭 축소(576→432)로 좌우 여백을 40→32 로 줄여 콘텐츠 폭(368px)을 최대한 확보해 가독성을 유지한다.
 const MARGIN_X = 32;
@@ -82,6 +99,14 @@ export function computeLogoSize(
 ): { width: number; height: number } {
   if (imgW <= 0 || imgH <= 0 || targetW <= 0) return { width: 0, height: 0 };
   return { width: Math.round(targetW), height: Math.round((imgH / imgW) * targetW) };
+}
+
+/**
+ * 제1~9조를 줄바꿈 없이 한 줄로 이어 붙인다(landscape 윗줄 본문).
+ * 각 조문을 `제 N조  <조문>` 형태로 만들고 넉넉한 간격으로 연결한다. 순수 함수 — 단위 테스트 가능.
+ */
+export function buildArticlesOneLine(articles: readonly string[]): string {
+  return articles.map((a, i) => `제 ${i + 1}조  ${a}`).join('    ');
 }
 
 /** 번들 자산 URL 로부터 이미지를 로드한다(로드 실패 시 reject). */
@@ -220,6 +245,135 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
   return canvas;
 }
 
+/** 공통 폰트 로딩 대기(normal/bold 두 weight). 실패해도 fallback 으로 진행. */
+async function awaitFonts(): Promise<void> {
+  if (typeof document !== 'undefined' && 'fonts' in document) {
+    try {
+      await Promise.all([
+        document.fonts.load(`28px ${FONT_FAMILY}`),
+        document.fonts.load(`bold 28px ${FONT_FAMILY}`),
+      ]);
+      await document.fonts.ready;
+    } catch {
+      /* 폰트 로드 실패 시 fallback 으로 진행 */
+    }
+  }
+}
+
+/**
+ * landscape(가로) 포맷 협정문을 PNG 로 렌더링한다.
+ *
+ * 감열 프린터의 인쇄 가능 폭은 PRINT_WIDTH 로 고정이므로, 가로로 긴 캔버스에 콘텐츠를
+ * 세운 뒤(upright) 90° 회전하여 폭=PRINT_WIDTH 인 세로 PNG 로 내보낸다. 사용자는 출력물을
+ * 90° 돌려 가로로 읽는다. 회전은 "가로 캔버스 가장 왼쪽 = 인쇄 시 최상단"이 되도록 한다
+ * (시계방향 90°: 왼쪽 열 → 최상단 행).
+ *
+ * 가로 캔버스 레이아웃(높이 = PRINT_WIDTH):
+ *   - 가장 왼쪽: 인쇄 로고(세로 중앙 정렬).
+ *   - 로고 오른쪽 본문 두 줄:
+ *       윗줄  = 제1~9조를 줄바꿈 없이 한 줄로.
+ *       아랫줄 = 제10조(완성 문장)를 폰트 2배 + bold 로.
+ */
+export async function renderTreatyCanvasLandscape(sentence: string): Promise<HTMLCanvasElement> {
+  await awaitFonts();
+
+  // 최상단(가장 왼쪽) 로고 이미지 로드. 실패해도 본문은 렌더(로고만 생략).
+  let logo: HTMLImageElement | null = null;
+  try {
+    logo = await loadImage(logoPrintUrl);
+  } catch {
+    logo = null;
+  }
+
+  // 가로 캔버스의 세로 크기 = 인쇄 폭(회전 후 최종 PNG 의 폭이 된다).
+  const STRIP = PRINT_WIDTH;
+  const MARGIN_Y = 28; // 인쇄 폭 방향 상하 여백
+  const PAD_LEFT = 40; // 로고 앞 여백(회전 후 최상단 여백)
+  const LOGO_GAP = 40; // 로고와 본문 사이 간격
+  const PAD_RIGHT = 56; // 본문 뒤 여백(회전 후 최하단 여백)
+
+  // 로고: 인쇄 폭 방향(세로)으로 적당한 높이에 맞추고 비율 유지로 폭을 계산한다.
+  // 로고 원본은 매우 가로로 길어(≈5.5:1) 세로 폭 전체를 채우면 지나치게 길어지므로
+  // 세로 폭의 절반 이하로 제한해 상단 밴드처럼 배치한다(보더 튜닝 여지 — 상수 조정).
+  const LANDSCAPE_LOGO_HEIGHT = Math.min(160, STRIP - MARGIN_Y * 2);
+  const logoImgW = logo ? logo.naturalWidth || logo.width : 0;
+  const logoImgH = logo ? logo.naturalHeight || logo.height : 0;
+  // computeLogoSize 는 폭 기준 축소이므로 높이 기준 환산을 위해 목표 폭을 역산한다.
+  const logoTargetW =
+    logoImgW > 0 && logoImgH > 0 ? (logoImgW / logoImgH) * LANDSCAPE_LOGO_HEIGHT : 0;
+  const logoSize = computeLogoSize(logoImgW, logoImgH, logoTargetW);
+  const hasLogo = logo !== null && logoSize.width > 0 && logoSize.height > 0;
+
+  // 본문 폰트 — bodyFont(24px)와 그 2배 bold(48px).
+  const BODY_FONT_PX = 24;
+  const articlesFont = `${BODY_FONT_PX}px ${FONT_FAMILY}`;
+  const article10Font = `bold ${BODY_FONT_PX * 2}px ${FONT_FAMILY}`;
+
+  const articlesLine = buildArticlesOneLine(TREATY_ARTICLES);
+  const article10Line = `제 10조  ${sentence}`;
+
+  // 측정용 임시 컨텍스트
+  const measureCanvas = document.createElement('canvas');
+  const mctx = measureCanvas.getContext('2d')!;
+  mctx.font = articlesFont;
+  const row1Width = mctx.measureText(articlesLine).width;
+  mctx.font = article10Font;
+  const row2Width = mctx.measureText(article10Line).width;
+  const bodyWidth = Math.max(row1Width, row2Width);
+
+  // 본문 두 줄의 세로 배치(인쇄 폭 방향)
+  const ROW1_H = 34;
+  const ROW_GAP = 28;
+  const ROW2_H = 64;
+  const bodyBlockH = ROW1_H + ROW_GAP + ROW2_H;
+
+  const logoW = hasLogo ? logoSize.width : 0;
+  const bodyX = PAD_LEFT + logoW + (hasLogo ? LOGO_GAP : 0);
+
+  // 가로 캔버스 전체 폭(= 회전 후 최종 PNG 높이)
+  const wideWidth = Math.ceil(bodyX + bodyWidth + PAD_RIGHT);
+  const wideHeight = STRIP;
+
+  // upright 가로 캔버스 렌더
+  const wide = document.createElement('canvas');
+  wide.width = wideWidth;
+  wide.height = wideHeight;
+  const wctx = wide.getContext('2d')!;
+  wctx.fillStyle = '#ffffff';
+  wctx.fillRect(0, 0, wide.width, wide.height);
+
+  // 로고(세로 중앙 정렬)
+  if (hasLogo && logo) {
+    const logoY = Math.round((wideHeight - logoSize.height) / 2);
+    wctx.drawImage(logo, PAD_LEFT, logoY, logoSize.width, logoSize.height);
+  }
+
+  // 본문 두 줄(세로 중앙 정렬 블록)
+  wctx.fillStyle = '#000000';
+  wctx.textBaseline = 'top';
+  wctx.textAlign = 'left';
+  const bodyTop = Math.round((wideHeight - bodyBlockH) / 2);
+  wctx.font = articlesFont;
+  wctx.fillText(articlesLine, bodyX, bodyTop);
+  wctx.font = article10Font;
+  wctx.fillText(article10Line, bodyX, bodyTop + ROW1_H + ROW_GAP);
+
+  // 90° 회전 → 폭=PRINT_WIDTH 세로 PNG. (시계방향: 왼쪽 열 → 최상단 행)
+  const canvas = document.createElement('canvas');
+  canvas.width = wideHeight; // = PRINT_WIDTH
+  canvas.height = wideWidth;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(canvas.width, 0);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(wide, 0, 0);
+  ctx.restore();
+
+  return canvas;
+}
+
 /** 캔버스를 PNG Blob 으로 변환 */
 export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -230,11 +384,18 @@ export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
-/** 협정문 PNG 를 한 번에 생성 (미리보기 dataURL + 인쇄 전송용 Blob) */
+/**
+ * 협정문 PNG 를 한 번에 생성 (미리보기 dataURL + 인쇄 전송용 Blob).
+ * 포맷은 PRINT_TYPE(VITE_PRINT_TYPE) 에 따라 portrait(기본) / landscape 로 분기한다.
+ * 어느 포맷이든 최종 PNG 폭 = PRINT_WIDTH.
+ */
 export async function renderTreatyPng(
   sentence: string,
 ): Promise<{ blob: Blob; dataUrl: string; width: number; height: number }> {
-  const canvas = await renderTreatyCanvas(sentence);
+  const canvas =
+    PRINT_TYPE === 'landscape'
+      ? await renderTreatyCanvasLandscape(sentence)
+      : await renderTreatyCanvas(sentence);
   const blob = await canvasToPngBlob(canvas);
   const dataUrl = canvas.toDataURL('image/png');
   return { blob, dataUrl, width: canvas.width, height: canvas.height };

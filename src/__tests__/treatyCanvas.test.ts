@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PRINT_WIDTH,
+  DEFAULT_PRINT_TYPE,
   PRINT_WIDTH,
+  PRINT_TYPE,
   CONTENT_WIDTH,
   resolvePrintWidth,
+  resolvePrintType,
+  buildArticlesOneLine,
   wrapTextByMeasure,
   computeLogoSize,
 } from '../lib/treatyCanvas';
+import { TREATY_ARTICLES } from '../data/treaty';
 
 describe('resolvePrintWidth', () => {
   it('미지정(undefined)이면 기본 432 를 쓴다', () => {
@@ -28,6 +33,53 @@ describe('resolvePrintWidth', () => {
     expect(resolvePrintWidth('0')).toBe(432);
     expect(resolvePrintWidth('-100')).toBe(432);
     expect(resolvePrintWidth('abc')).toBe(432);
+  });
+});
+
+describe('resolvePrintType (인쇄 포맷 파싱)', () => {
+  it('미지정(undefined)이면 portrait 기본값이다', () => {
+    expect(resolvePrintType(undefined)).toBe('portrait');
+    expect(DEFAULT_PRINT_TYPE).toBe('portrait');
+  });
+
+  it('빈 문자열이면 portrait 로 대체한다', () => {
+    expect(resolvePrintType('')).toBe('portrait');
+  });
+
+  it("'portrait' 는 그대로 portrait 이다", () => {
+    expect(resolvePrintType('portrait')).toBe('portrait');
+  });
+
+  it("'landscape' 는 landscape 이다(대소문자·공백 무시)", () => {
+    expect(resolvePrintType('landscape')).toBe('landscape');
+    expect(resolvePrintType('LANDSCAPE')).toBe('landscape');
+    expect(resolvePrintType('  Landscape ')).toBe('landscape');
+  });
+
+  it('알 수 없는 값은 portrait 로 폴백한다', () => {
+    expect(resolvePrintType('wide')).toBe('portrait');
+    expect(resolvePrintType('가로')).toBe('portrait');
+    expect(resolvePrintType('1')).toBe('portrait');
+  });
+
+  it('PRINT_TYPE 상수는 테스트 환경(VITE_PRINT_TYPE 미지정)에서 portrait 이다', () => {
+    expect(PRINT_TYPE).toBe('portrait');
+  });
+});
+
+describe('buildArticlesOneLine (landscape 윗줄 본문)', () => {
+  it('제1~9조를 줄바꿈 없이 한 줄로 이어 붙인다', () => {
+    const line = buildArticlesOneLine(TREATY_ARTICLES);
+    expect(line).not.toContain('\n');
+    expect(line.startsWith('제 1조  ')).toBe(true);
+    // 9개 조문이 모두 라벨과 함께 포함된다.
+    for (let i = 1; i <= TREATY_ARTICLES.length; i += 1) {
+      expect(line).toContain(`제 ${i}조`);
+    }
+  });
+
+  it('빈 배열이면 빈 문자열이다', () => {
+    expect(buildArticlesOneLine([])).toBe('');
   });
 });
 

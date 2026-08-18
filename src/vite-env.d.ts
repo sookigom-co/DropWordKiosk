@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_PRINTER_BASE?: string;
   /** 인쇄 PNG 폭(dot) 재정의 (양의 정수, 미지정 시 432). 2S(54mm)·SMK3S 등 실기기 인쇄 가능 폭 대응용. */
   readonly VITE_PRINT_WIDTH?: string;
+  /** 인쇄 포맷: 'portrait'(기본) | 'landscape'(가로). 미지정·이상값이면 portrait. */
+  readonly VITE_PRINT_TYPE?: string;
 }
 
 interface ImportMeta {
