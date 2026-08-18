@@ -16,6 +16,7 @@ import {
   UNIFORM_BUBBLE_MASS,
   setUniformBubbleMass,
   setCircleRadius,
+  freezeBody,
 } from '../lib/physics';
 import Matter from 'matter-js';
 
@@ -53,6 +54,47 @@ describe('물리 — 중력 낙하·바닥 안착', () => {
     run(slow, 12);
     run(fast, 12);
     expect(bf.position.y).toBeGreaterThan(bs.position.y);
+  });
+});
+
+describe('freezeBody (SOO-1114 채움 완료 후 물리 고정)', () => {
+  it('고정 시 잔여 속도·각속도가 0 으로 클리어되고 정적이 된다', () => {
+    const body = makeWordBody(W / 2, H / 2, R);
+    Matter.Body.setVelocity(body, { x: 5, y: -8 });
+    Matter.Body.setAngularVelocity(body, 0.6);
+    freezeBody(body);
+    expect(body.isStatic).toBe(true);
+    expect(body.velocity.x).toBe(0);
+    expect(body.velocity.y).toBe(0);
+    expect(body.angularVelocity).toBe(0);
+  });
+
+  it('고정 후에는 중력·엔진 전진에도 미동조차 없다(지터 0)', () => {
+    const world = createStep1World(W, H, 2);
+    const body = makeWordBody(W / 2, H / 2, R);
+    addBody(world, body);
+    freezeBody(body);
+    const px = body.position.x;
+    const py = body.position.y;
+    run(world, 120); // ~2s
+    expect(body.position.x).toBe(px);
+    expect(body.position.y).toBe(py);
+    expect(body.speed).toBe(0);
+  });
+
+  it('고정 후에도 버블 성장(Body.scale)이 안전하다(반지름 갱신, 정적 유지, 무이동)', () => {
+    const world = createStep1World(W, H, 1);
+    const bubble = makeBubbleBody(W / 2, H / 2, 10);
+    addBody(world, bubble);
+    freezeBody(bubble);
+    const px = bubble.position.x;
+    const py = bubble.position.y;
+    setCircleRadius(bubble, 30); // 고정 후 성장 호출
+    expect(bubble.circleRadius).toBeCloseTo(30, 1);
+    expect(bubble.isStatic).toBe(true);
+    run(world, 60);
+    expect(bubble.position.x).toBe(px);
+    expect(bubble.position.y).toBe(py);
   });
 });
 

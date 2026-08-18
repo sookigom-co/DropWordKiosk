@@ -10,6 +10,7 @@ import {
   setCircleRadius,
   setUniformBubbleMass,
   setBodyPosition,
+  freezeBody,
   stepEngine,
   bodyCenter,
   type Step1World,
@@ -21,6 +22,8 @@ import {
   burstCount,
   easeOutCubic,
   FILL_STOP_RATIO,
+  FREEZE_DELAY_MS,
+  freezeDue,
   growthRadius,
   maxGrowRadius,
   purpleColor,
@@ -110,6 +113,8 @@ export interface Step1PhysicsApi {
  * 솔버가 "부르르 떨리는" 현상 없이 스폰 직후 프레임부터 겹침 0. 빈자리가 없으면 이번 틱 스폰을
  * 건너뛰고(영속 유지), 화면은 70%(FILL_STOP_RATIO)까지 채운다(비중첩 스폰 유지, 채움 조절).
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
+ * 채움 상한 도달 후 약 2초(FREEZE_DELAY_MS) 뒤 전체 바디를 정적 고정(freezeBody)하고 rAF
+ * 루프를 멈춰, 솔버 잔여 접촉 해소로 인한 미세 떨림(지터)을 완전히 제거한다(SOO-1114).
  */
 export function useStep1Physics(
   fieldRef: React.RefObject<HTMLDivElement | null>,
@@ -195,6 +200,9 @@ export function useStep1Physics(
     let settled = false;
     let settleSince = -1; // 속도 임계 이하 진입 시각(ms), 리셋되면 -1
     let ceilingAdded = false; // 정착 후 상단 벽 1회 추가(버블이 화면 밖으로 날아가지 않게).
+    // 물리 고정(SOO-1114) — 채움 완료 후 2초 유예 뒤 전체 바디 정적 고정으로 지터 제거.
+    let fillCompleteAt = -1; // 채움 상한 최초 도달 시각(ms), 래치(한 번 설정되면 유지).
+    let frozen = false; // 고정 완료 여부. true 면 rAF 루프를 멈춰 이후 물리·갱신이 없다.
 
     /**
      * 현재 점유 영역(기존 보라 버블 + 낙하 완료된 단어 원)을 원 목록으로 수집.
@@ -364,6 +372,16 @@ export function useStep1Physics(
         if (spawnedAny) lastSpawn = nowMs;
       }
 
+      // 채움 완료 감지(SOO-1114): 정착 후 채움 상한(면적 70% 또는 MAX_PURPLE)에 최초 도달한
+      // 시각을 래치한다. 버블은 소멸하지 않고 footprint 는 목표 크기로 예약돼 면적이 단조 증가하므로
+      // 한 번 도달하면 다시 내려가지 않는다(래치 유지). 이 시점부터 FREEZE_DELAY_MS 뒤 전체 고정.
+      if (settled && fillCompleteAt < 0) {
+        const capReached =
+          purpleSims.length >= MAX_PURPLE ||
+          areaFilled(collectFootprint(), width, height, FILL_STOP_RATIO);
+        if (capReached) fillCompleteAt = nowMs;
+      }
+
       // 보라 버블 성장(영속 — 수축·제거 없음). 스폰 시 목표 크기 자리를 예약하므로 대개
       // 이웃과 겹치지 않고 목표까지 자란다. 다만 부력 이동으로 이웃이 근접했을 때를 대비해
       // 성장 구간 동안에만 maxGrowRadius 로 이웃(현재 반지름) 비중첩 상한을 건다(SOO-1112 #3).
@@ -405,6 +423,23 @@ export function useStep1Physics(
         if (!sim.released) continue;
         const el = bubbleEls.current.get(sim.id);
         if (el) writeBubble(el, bodyCenter(sim.body));
+      }
+
+      // 물리 고정(SOO-1114): 채움 완료 후 FREEZE_DELAY_MS 유예가 지나면 이번 프레임에서 방금
+      // 그린 위치·크기 그대로(스냅/튐 없음) 모든 바디의 잔여 속도를 0 으로 클리어하고 정적 고정한다.
+      // 고정 뒤에는 다음 프레임을 요청하지 않아 rAF 루프가 멈춘다 → 성장·스폰·밀어올림·부력·솔버가
+      // 더 이상 돌지 않으므로 잔여 접촉 해소 떨림(지터)이 0 이고, 갱신 루프 부작용·콘솔 에러도 없다.
+      if (!frozen && freezeDue(fillCompleteAt < 0 ? null : fillCompleteAt, nowMs, FREEZE_DELAY_MS)) {
+        for (const sim of wordSims) {
+          if (!sim.released) continue;
+          sim.pushTargetY = null; // 진행 중이던 밀어올림 목표 해제(고정 후 재이동 방지).
+          freezeBody(sim.body);
+        }
+        for (const p of purpleSims) {
+          freezeBody(p.body);
+        }
+        frozen = true;
+        return; // 다음 프레임 미요청 → 루프 종료(정지 상태 유지).
       }
 
       raf = window.requestAnimationFrame(frame);

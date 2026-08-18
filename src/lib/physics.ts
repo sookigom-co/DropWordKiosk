@@ -229,6 +229,23 @@ export function clampBodyAngle(body: Matter.Body, limit = MAX_WORD_ANGLE): boole
   return true;
 }
 
+/**
+ * 바디의 잔여 운동을 제거하고 정적으로 고정한다(SOO-1114).
+ *
+ * 보더 피드백: 채움이 끝난 뒤에도 솔버가 잔여 접촉을 해소하며 바디가 "부르르" 미세 진동한다.
+ * 채움 완료 2초 뒤 이 함수로 각 바디를 고정하면 이후 어떤 접촉·힘에도 미동조차 없다(지터 0).
+ *
+ * 순서가 중요하다: 먼저 선속도·각속도를 0 으로 클리어해 고정 순간의 잔여 속도가 위치 스냅으로
+ * 새어 나오지 않게 한 뒤(자연스러운 정지), `Body.setStatic(true)` 로 고정한다. 고정된 바디는
+ * mass=Infinity·inverseMass=0 이 되어 솔버가 밀어도 움직이지 않으며, `Engine.update` 의 적분에서도
+ * 제외된다. `Body.scale`(버블 성장)은 정적 바디의 질량을 재계산하지 않으므로 고정 후에도 안전하다.
+ */
+export function freezeBody(body: Matter.Body): void {
+  Body.setVelocity(body, { x: 0, y: 0 });
+  Body.setAngularVelocity(body, 0);
+  Body.setStatic(body, true);
+}
+
 /** 엔진을 dtMs(밀리초)만큼 전진. 큰 프레임 간격은 상한을 둬 폭주 방지. */
 export function stepEngine(world: Step1World, dtMs: number): void {
   const clamped = Math.min(48, Math.max(1, dtMs));

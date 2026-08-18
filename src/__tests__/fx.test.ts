@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_FX_SETTINGS,
   FILL_STOP_RATIO,
+  FREEZE_DELAY_MS,
+  freezeDue,
   FX_RANGES,
   approach,
   areaFilled,
@@ -429,6 +431,26 @@ describe('bodiesSettled (SOO-1049 정착 판정)', () => {
   it('음수 속도도 절대값으로 판정', () => {
     expect(bodiesSettled([-0.3, 0.2], 0.4)).toBe(true);
     expect(bodiesSettled([-1.5], 0.4)).toBe(false);
+  });
+});
+
+describe('freezeDue (SOO-1114 채움 완료 후 2초 고정)', () => {
+  it('기본 유예는 2000ms', () => {
+    expect(FREEZE_DELAY_MS).toBe(2000);
+  });
+  it('채움 미완(null)이면 항상 false', () => {
+    expect(freezeDue(null, 999999, FREEZE_DELAY_MS)).toBe(false);
+  });
+  it('유예 경과 전에는 false, 정확히 경과 시점부터 true', () => {
+    const t0 = 5000;
+    expect(freezeDue(t0, t0 + 1999, FREEZE_DELAY_MS)).toBe(false);
+    expect(freezeDue(t0, t0 + 2000, FREEZE_DELAY_MS)).toBe(true);
+    expect(freezeDue(t0, t0 + 5000, FREEZE_DELAY_MS)).toBe(true);
+  });
+  it('비유한 입력은 보수적으로 false', () => {
+    expect(freezeDue(Infinity, 10000, FREEZE_DELAY_MS)).toBe(false);
+    expect(freezeDue(1000, Number.NaN, FREEZE_DELAY_MS)).toBe(false);
+    expect(freezeDue(1000, 10000, Number.POSITIVE_INFINITY)).toBe(false);
   });
 });
 
