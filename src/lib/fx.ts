@@ -42,13 +42,16 @@ export const FX_RANGES: Readonly<Record<keyof FxSettings, FxRange>> = {
 
 /**
  * 기본 효과 설정. 보더 요청(SOO-1049 후속)에 맞춘 값:
- * - 생성 간격 0.1s(100ms) · 성장 시간 0.2s · 최대 크기 비율 100%(단어 원 지름과 동일).
+ * - 생성 간격 0.1s(100ms) · 성장 시간 0.25s · 최대 크기 비율 100%(단어 원 지름과 동일).
  *   공 크기는 단어 원 지름의 50%(최소)~100%(최대) 사이에서 랜덤(보더 요청).
+ * - 성장 시간 0.2s → 0.25s: 보더 요청(SOO-1112 후속)으로 **성장 속도를 80%로** 감속.
+ *   같은 목표 반지름을 25% 더 긴 시간에 걸쳐 키우면 틱당 반경 증가(=이웃 침투)가 줄어
+ *   충돌 해소 충격량이 작아져 버블이 덜 튕겨 나간다.
  */
 export const DEFAULT_FX_SETTINGS: FxSettings = {
   gravity: 1,
   spawnIntervalMs: 100,
-  growDurationSec: 0.2,
+  growDurationSec: 0.25,
   maxSizeRatio: 1,
   hue: 262,
 };

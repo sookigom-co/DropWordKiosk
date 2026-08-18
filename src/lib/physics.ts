@@ -80,7 +80,8 @@ export function createStep1World(width: number, height: number, gravityY = 1): S
  */
 export function makeWordBody(x: number, y: number, radius: number): Matter.Body {
   return Bodies.circle(x, y, radius, {
-    restitution: 0.18,
+    // 튕김 완화(SOO-1112 후속, 보더 요청 "덜 튕겨나가게"): 0.18 → 0.1.
+    restitution: 0.1,
     friction: 0.55,
     frictionStatic: 0.9,
     frictionAir: 0.01,
@@ -125,7 +126,9 @@ export function makeBoxBody(x: number, y: number, width: number, height: number)
  */
 export function makeBubbleBody(x: number, y: number, radius: number): Matter.Body {
   return Bodies.circle(x, y, Math.max(1, radius), {
-    restitution: 0.08,
+    // 튕김 완화(SOO-1112 후속, 보더 요청 "덜 튕겨나가게"): 0.08 → 0.02.
+    // 성장 중 이웃과 겹쳤을 때 충돌 반발을 거의 제거해 버블이 확 튀어 나가지 않는다.
+    restitution: 0.02,
     friction: 0.02,
     frictionStatic: 0.05,
     // 완만한 종단속도(물속 기포처럼) — 너무 빠르면 단어를 뚫고 지나가 못 밀어 올린다.
