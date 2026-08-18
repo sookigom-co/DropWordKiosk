@@ -580,6 +580,23 @@ describe('groupedReleaseOrder (SOO-1109 — 단어·사각형·사각형 낙하 
     expect(groupedReleaseOrder(0, 3)).toEqual({ wordSlots: [], squareSlots: [0, 1, 2] });
     expect(groupedReleaseOrder(3, 0)).toEqual({ wordSlots: [0, 1, 2], squareSlots: [] });
   });
+  it('1:1 교대(단어·사각형·단어·사각형…) — 보더 재요청 코멘트 0a52c954', () => {
+    // Step3 실제 호출: groupedReleaseOrder(18, 9, 1, 1)
+    const { wordSlots, squareSlots } = groupedReleaseOrder(18, 9, 1, 1);
+    const seq: string[] = [];
+    wordSlots.forEach((s) => (seq[s] = 'W'));
+    squareSlots.forEach((s) => (seq[s] = 'S'));
+    // 앞 18슬롯(0..17)은 W S 교대, 사각형 소진(9개) 뒤 남은 단어가 이어짐
+    const head = seq.slice(0, 18);
+    expect(head).toEqual([
+      'W', 'S', 'W', 'S', 'W', 'S', 'W', 'S', 'W', 'S', 'W', 'S', 'W', 'S', 'W', 'S', 'W', 'S',
+    ]);
+    // 사각형 소진 후 남은 단어(18-9=9개)가 뒤에 순서대로
+    expect(seq.slice(18)).toEqual(['W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W']);
+    // 무중복 전수 커버
+    const all = new Set([...wordSlots, ...squareSlots]);
+    expect(all.size).toBe(27);
+  });
 });
 
 describe('결정적 균형 적재 레인 (SOO-1063)', () => {
