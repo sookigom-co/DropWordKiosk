@@ -116,29 +116,49 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     // 사각형(9)이 단어(18)보다 적으므로 사각형 소진 후 남은 단어는 순서대로 이어진다.
     const { wordSlots, squareSlots } = groupedReleaseOrder(VERBS.length, SQUARE_COUNT, 1, 1);
 
-    // 좌측 우선 빈-자리 채움: 모든 아이템(카드→장식) 폭을 index 순으로 좌→우 스캔해
-    // 첫 번째 수용 가능한 자리에 배치하고, 현재 행이 꽉 차면 다음 행으로 넘어간다(x 는 다시 좌측부터).
-    // 물리 낙하가 세로 적재를 처리하므로 여기서는 목표 x 만 결정한다 → 왼쪽부터 빈틈을 메우며 쌓인다.
-    const packWidths = [
-      ...VERBS.map((v) => cardWidth(v.text)),
-      ...Array.from({ length: SQUARE_COUNT }, (_, i) => SQUARE_MIN + (i % 4) * SQUARE_STEP),
-    ];
-    const packX: number[] = [];
+    // 아이템 폭(카드=텍스트 기준, 장식 사각형=결정적 변주).
+    const wordWidths = VERBS.map((v) => cardWidth(v.text));
+    const squareSizes = Array.from(
+      { length: SQUARE_COUNT },
+      (_, i) => SQUARE_MIN + (i % 4) * SQUARE_STEP,
+    );
+
+    // SOO-1109(보더 `0a52c954`/`075243b9` — "이게 자연스러워 보여?"): 좌측 우선 빈-자리 채움을
+    // **낙하(릴리즈) 순서와 동일한 순서**로 수행한다. 예전에는 단어 18개를 전부 먼저 채운 뒤 보라
+    // 사각형 9개를 남은 꼬리 슬롯에 배치했는데, 실제 낙하는 단어·보라 1:1 교대라 목표 x 와 낙하
+    // 시점이 어긋나 보라 사각형이 우측/하단에 고립되거나 단어와 겹쳤다. 릴리즈 슬롯(s=0..total-1)
+    // 오름차순으로 스캔하며 x 를 정하면, 각 아이템의 목표 x 가 그 시점에 실제로 쌓여가는 더미의
+    // 좌→우 진행과 일치해 보라 사각형이 단어 사이에 자연스럽게 끼어든다(고립·겹침 해소).
+    const total = VERBS.length + SQUARE_COUNT;
+    const slotToItem: ({ kind: 'word' | 'square'; idx: number } | null)[] = Array(total).fill(null);
+    wordSlots.forEach((s, i) => {
+      slotToItem[s] = { kind: 'word', idx: i };
+    });
+    squareSlots.forEach((s, j) => {
+      slotToItem[s] = { kind: 'square', idx: j };
+    });
+
+    const wordX: number[] = Array(VERBS.length).fill(W / 2);
+    const squareX: number[] = Array(SQUARE_COUNT).fill(W / 2);
     let row: PlacedBox[] = [];
-    for (const w of packWidths) {
+    for (let s = 0; s < total; s++) {
+      const item = slotToItem[s];
+      if (!item) continue;
+      const w = item.kind === 'word' ? wordWidths[item.idx] : squareSizes[item.idx];
       let x = leftmostFreeSlotX(row, w, W);
       if (x === null) {
         // 현재 행에 자리 없음 → 새 행 시작(x 는 다시 최좌측부터)
         row = [];
         x = leftmostFreeSlotX(row, w, W) ?? W / 2; // 폭이 스테이지보다 넓으면 중앙 폴백
       }
-      packX.push(x);
+      if (item.kind === 'word') wordX[item.idx] = x;
+      else squareX[item.idx] = x;
       row.push({ x, w });
     }
 
     const cards: CardRef[] = VERBS.map((verb, i) => {
-      const w = packWidths[i];
-      const x = packX[i]; // 좌측 우선 빈-자리 x
+      const w = wordWidths[i];
+      const x = wordX[i]; // 릴리즈 순서 기준 좌측 우선 빈-자리 x
       const y = slotY(wordSlots[i]); // 낙하 순서(단어·사각형·단어·사각형… 1:1 교대)
       const body = makeBoxBody(x, y, w, CARD_H); // 회전 금지(inertia = Infinity)
       // 각속도는 주지 않는다(회전 방지). 아래 방향 속도만 살짝(좌우 편향 없음).
@@ -151,9 +171,8 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     // 장식용 보라 사각형 — 글자·기능 없음(aria-hidden). 카드와 같은 릴리즈 순서 풀 + 좌측 우선
     // 배치 풀을 공유해 카드 사이사이에 자연스럽게 섞인다.
     const squares: SquareRef[] = Array.from({ length: SQUARE_COUNT }, (_, i) => {
-      const idx = VERBS.length + i;
-      const size = packWidths[idx]; // 30~48px 결정적 변주
-      const x = packX[idx]; // 좌측 우선 빈-자리 x
+      const size = squareSizes[i]; // 30~48px 결정적 변주
+      const x = squareX[i]; // 릴리즈 순서 기준 좌측 우선 빈-자리 x
       const y = slotY(squareSlots[i]); // 낙하 순서(단어·사각형·단어·사각형… 1:1 교대)
       const body = makeBoxBody(x, y, size, size); // 회전 금지(inertia = Infinity)
       Matter.Body.setVelocity(body, { x: 0, y: 1 });
