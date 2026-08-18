@@ -8,7 +8,7 @@ interface Props {
   onDone: () => void;
 }
 
-/** 화면11 — 완성 문장(검은 배경, 흰 글자). 잠시 노출 후 자동으로 인쇄 단계로. */
+/** 화면11 — 완성 문장(다른 페이지와 동일한 흰 계열 배경·검은 계열 글자). 잠시 노출 후 자동으로 인쇄 단계로. */
 export function ResultScreen({ sentence, onDone }: Props) {
   useEffect(() => {
     const t = setTimeout(onDone, RESULT_HOLD_MS);
@@ -16,7 +16,7 @@ export function ResultScreen({ sentence, onDone }: Props) {
   }, [onDone]);
 
   return (
-    <ScreenFrame label="완성 문장 화면" dark>
+    <ScreenFrame label="완성 문장 화면">
       <motion.p
         className="result-sentence"
         initial={{ opacity: 0, scale: 0.94 }}
