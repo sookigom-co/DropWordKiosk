@@ -134,6 +134,40 @@ export function buildArticlesOneLine(articles: readonly string[]): string {
   return articles.map((a, i) => `제 ${i + 1}조  ${a}`).join('    ');
 }
 
+/** landscape 로고를 90° 회전해 그릴 때의 크기(순수 함수 계산 결과). */
+export interface LandscapeLogoLayout {
+  /** 회전 전(자연 방향) 그릴 폭 = 회전 후 인쇄 폭(STRIP) 방향 길이. */
+  drawWidth: number;
+  /** 회전 전 그릴 높이 = 회전 후 가로 캔버스 폭 방향 두께. */
+  drawHeight: number;
+  /** 회전 후 가로 캔버스에서 로고가 차지하는 두께(px) = drawHeight. */
+  thickness: number;
+  /** 회전 후 STRIP(인쇄 폭) 방향 길이(px) = drawWidth. */
+  length: number;
+}
+
+/**
+ * landscape 로고를 90° 회전해 그릴 때의 렌더 크기를 계산한다(순수 함수 — 캔버스 없이 테스트).
+ * 로고의 긴 변(원본 폭)을 인쇄 폭(strip)에서 상하 여백(marginY×2)을 뺀 길이에 비율 유지로 맞춘다.
+ * 회전 후 최종 출력물에서 portrait 로고처럼 인쇄 폭 방향으로 가로로 눕는다.
+ * 유효하지 않은 입력이면 {0,0,0,0}(그리지 않음).
+ */
+export function computeLandscapeLogoLayout(
+  imgW: number,
+  imgH: number,
+  strip: number,
+  marginY: number,
+): LandscapeLogoLayout {
+  const length = strip - marginY * 2;
+  if (imgW <= 0 || imgH <= 0 || length <= 0) {
+    return { drawWidth: 0, drawHeight: 0, thickness: 0, length: 0 };
+  }
+  const scale = length / imgW;
+  const drawHeight = Math.round(imgH * scale);
+  const drawWidth = Math.round(length);
+  return { drawWidth, drawHeight, thickness: drawHeight, length: drawWidth };
+}
+
 /** 번들 자산 URL 로부터 이미지를 로드한다(로드 실패 시 reject). */
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -175,8 +209,8 @@ export async function renderTreatyCanvas(sentence: string): Promise<HTMLCanvasEl
   const logoImgH = logo ? logo.naturalHeight || logo.height : 0;
   const logoSize = computeLogoSize(logoImgW, logoImgH, CONTENT_WIDTH);
   const hasLogo = logo !== null && logoSize.height > 0;
-  // 기존 헤더 문구 자리와 비슷한 하단 여백.
-  const LOGO_GAP_AFTER = 24;
+  // 로고와 '평화 협정문' 제목 사이 세로 여백. 보더 요청(SOO-1104)으로 기존 24 → 2배(48).
+  const LOGO_GAP_AFTER = 48;
 
   // 측정용 임시 컨텍스트
   const measureCanvas = document.createElement('canvas');
@@ -294,10 +328,12 @@ async function awaitFonts(): Promise<void> {
  * (시계방향 90°: 왼쪽 열 → 최상단 행).
  *
  * 가로 캔버스 레이아웃(높이 = PRINT_WIDTH):
- *   - 가장 왼쪽: 인쇄 로고(세로 중앙 정렬).
- *   - 로고 오른쪽 본문 두 줄:
- *       윗줄  = 제1~9조를 줄바꿈 없이 한 줄로.
- *       아랫줄 = 제10조(완성 문장)를 폰트 2배 + bold 로.
+ *   - 가장 왼쪽: 인쇄 로고를 90° 회전해 그린다. 전체 캔버스 +90° 회전 파이프라인과 상쇄되어
+ *     최종 출력물에서 portrait 로고와 동일한 방향(가로 밴드)으로 보인다(SOO-1104 #2).
+ *   - 로고 오른쪽 본문:
+ *       제1~9조 = 줄바꿈 없이 한 줄로 이어붙인 뒤, 제10조 줄 폭(W10)을 기준으로 자동 줄바꿈
+ *                 → 여러 줄(SOO-1104 정정: 조별 줄바꿈이 아니라 W10 기준 word-wrap).
+ *       제10조   = 완성 문장을 폰트 2배 + bold 로 한 줄에(줄바꿈 없음). 이 줄의 폭이 기준 폭.
  */
 export async function renderTreatyCanvasLandscape(sentence: string): Promise<HTMLCanvasElement> {
   await awaitFonts();
@@ -317,17 +353,11 @@ export async function renderTreatyCanvasLandscape(sentence: string): Promise<HTM
   const LOGO_GAP = 40; // 로고와 본문 사이 간격
   const PAD_RIGHT = 56; // 본문 뒤 여백(회전 후 최하단 여백)
 
-  // 로고: 인쇄 폭 방향(세로)으로 적당한 높이에 맞추고 비율 유지로 폭을 계산한다.
-  // 로고 원본은 매우 가로로 길어(≈5.5:1) 세로 폭 전체를 채우면 지나치게 길어지므로
-  // 세로 폭의 절반 이하로 제한해 상단 밴드처럼 배치한다(보더 튜닝 여지 — 상수 조정).
-  const LANDSCAPE_LOGO_HEIGHT = Math.min(160, STRIP - MARGIN_Y * 2);
+  // 로고: 90° 회전 렌더 크기 계산. 긴 변(원본 폭)을 인쇄 폭(STRIP) 방향에 맞춰 눕힌다.
   const logoImgW = logo ? logo.naturalWidth || logo.width : 0;
   const logoImgH = logo ? logo.naturalHeight || logo.height : 0;
-  // computeLogoSize 는 폭 기준 축소이므로 높이 기준 환산을 위해 목표 폭을 역산한다.
-  const logoTargetW =
-    logoImgW > 0 && logoImgH > 0 ? (logoImgW / logoImgH) * LANDSCAPE_LOGO_HEIGHT : 0;
-  const logoSize = computeLogoSize(logoImgW, logoImgH, logoTargetW);
-  const hasLogo = logo !== null && logoSize.width > 0 && logoSize.height > 0;
+  const logoLayout = computeLandscapeLogoLayout(logoImgW, logoImgH, STRIP, MARGIN_Y);
+  const hasLogo = logo !== null && logoLayout.thickness > 0;
 
   // 본문 폰트 — bodyFont(24px)와 그 2배 bold(48px).
   const BODY_FONT_PX = 24;
@@ -340,22 +370,27 @@ export async function renderTreatyCanvasLandscape(sentence: string): Promise<HTM
   // 측정용 임시 컨텍스트
   const measureCanvas = document.createElement('canvas');
   const mctx = measureCanvas.getContext('2d')!;
-  mctx.font = articlesFont;
-  const row1Width = mctx.measureText(articlesLine).width;
+  // 제10조 한 줄 폭(W10) — 제1~9조 줄바꿈의 기준 폭이 된다.
   mctx.font = article10Font;
-  const row2Width = mctx.measureText(article10Line).width;
-  const bodyWidth = Math.max(row1Width, row2Width);
+  const article10Width = mctx.measureText(article10Line).width;
+  // 제1~9조 한 줄을 W10 기준으로 자동 줄바꿈(중간에서 잘라 여러 줄).
+  mctx.font = articlesFont;
+  const articleLines = wrapText(mctx, articlesLine, article10Width);
 
-  // 본문 두 줄의 세로 배치(인쇄 폭 방향)
-  const ROW1_H = 34;
-  const ROW_GAP = 28;
-  const ROW2_H = 64;
-  const bodyBlockH = ROW1_H + ROW_GAP + ROW2_H;
+  // 본문 폭 = W10 (제1~9조 wrap 줄은 모두 W10 이하이므로 제10조가 가장 넓다).
+  const bodyWidth = article10Width;
 
-  const logoW = hasLogo ? logoSize.width : 0;
+  // 본문 세로 배치(인쇄 폭 방향): 제1~9조 wrap 줄들(24px) 위, 제10조(48px bold) 아래.
+  const ROW1_H = 34; // 24px 본문 줄 높이
+  const ROW_GAP = 28; // 제1~9조 블록과 제10조 사이 간격
+  const ROW2_H = 64; // 48px bold 제10조 줄 높이
+  const articlesBlockH = articleLines.length * ROW1_H;
+  const bodyBlockH = articlesBlockH + ROW_GAP + ROW2_H;
+
+  const logoW = hasLogo ? logoLayout.thickness : 0;
   const bodyX = PAD_LEFT + logoW + (hasLogo ? LOGO_GAP : 0);
 
-  // 가로 캔버스 전체 폭(= 회전 후 최종 PNG 높이)
+  // 가로 캔버스 전체 폭(= 회전 후 최종 PNG 높이). 콘텐츠에 따라 자연 확장.
   const wideWidth = Math.ceil(bodyX + bodyWidth + PAD_RIGHT);
   const wideHeight = STRIP;
 
@@ -367,21 +402,37 @@ export async function renderTreatyCanvasLandscape(sentence: string): Promise<HTM
   wctx.fillStyle = '#ffffff';
   wctx.fillRect(0, 0, wide.width, wide.height);
 
-  // 로고(세로 중앙 정렬)
+  // 로고: 90° 회전(-π/2, 반시계)으로 눕혀 그린다. 세로 중앙 정렬, 두께만큼 좌측 밴드.
+  // 이후 전체 캔버스 +π/2 회전과 상쇄(net 0)되어 portrait 와 동일한 방향으로 인쇄된다.
   if (hasLogo && logo) {
-    const logoY = Math.round((wideHeight - logoSize.height) / 2);
-    wctx.drawImage(logo, PAD_LEFT, logoY, logoSize.width, logoSize.height);
+    const cx = PAD_LEFT + logoLayout.thickness / 2;
+    const cy = wideHeight / 2;
+    wctx.save();
+    wctx.translate(cx, cy);
+    wctx.rotate(-Math.PI / 2);
+    wctx.drawImage(
+      logo,
+      -logoLayout.drawWidth / 2,
+      -logoLayout.drawHeight / 2,
+      logoLayout.drawWidth,
+      logoLayout.drawHeight,
+    );
+    wctx.restore();
   }
 
-  // 본문 두 줄(세로 중앙 정렬 블록)
+  // 본문(세로 중앙 정렬 블록)
   wctx.fillStyle = '#000000';
   wctx.textBaseline = 'top';
   wctx.textAlign = 'left';
-  const bodyTop = Math.round((wideHeight - bodyBlockH) / 2);
+  let ry = Math.round((wideHeight - bodyBlockH) / 2);
   wctx.font = articlesFont;
-  wctx.fillText(articlesLine, bodyX, bodyTop);
+  for (const line of articleLines) {
+    wctx.fillText(line, bodyX, ry);
+    ry += ROW1_H;
+  }
+  ry += ROW_GAP;
   wctx.font = article10Font;
-  wctx.fillText(article10Line, bodyX, bodyTop + ROW1_H + ROW_GAP);
+  wctx.fillText(article10Line, bodyX, ry);
 
   // 90° 회전 → 폭=PRINT_WIDTH 세로 PNG. (시계방향: 왼쪽 열 → 최상단 행)
   const canvas = document.createElement('canvas');
