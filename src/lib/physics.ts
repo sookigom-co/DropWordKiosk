@@ -216,6 +216,17 @@ export function bodyCenter(body: Matter.Body): { x: number; y: number; angle: nu
 }
 
 /**
+ * 강체를 지정 위치로 즉시 이동(SOO-1112) — 스폰 시 겹치는 단어를 사전 계산한 자리로 밀어올릴 때.
+ * matter `Body.setPosition` 은 이전 위치(positionPrev)도 함께 갱신하므로 순간이동에 따른 허위
+ * 속도가 생기지 않는다. 위로 밀어올린 뒤 곧바로 아래로 튕겨 내려가지 않도록 세로 속도만 0 으로
+ * 초기화한다(가로 속도는 유지 — 좌우 거동 회귀 없음).
+ */
+export function setBodyPosition(body: Matter.Body, x: number, y: number): void {
+  Body.setPosition(body, { x, y });
+  Body.setVelocity(body, { x: body.velocity.x, y: 0 });
+}
+
+/**
  * 원형 강체를 스테이지 경계 안으로 강제 클램프(SOO-1088 최후 방어선).
  *
  * 매 틱 stepEngine 이후 호출해, 벽·솔버가 놓친 터널링·고속 탈출로 반지름만큼이라도
