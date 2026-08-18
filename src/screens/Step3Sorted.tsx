@@ -40,8 +40,8 @@ const SQUARE_STEP = 6;
  * 낙하 릴리즈 밴드 — 상자·장식 사각형을 위쪽 밖에서 순차적으로 떨어뜨려
  * 차곡차곡 쌓이게 한다. 슬롯이 클수록 더 위(늦게 진입).
  *
- * SOO-1109: 낙하 순서를 보더 요청 패턴(`groupedReleaseOrder` — 단어·사각형·사각형·단어…)으로
- * 고정한다. x 위치는 SOO-1110 의 좌측 우선 빈-자리 채움(`leftmostFreeSlotX`)을 유지한다.
+ * SOO-1109: 낙하 순서를 보더 요청 패턴(`groupedReleaseOrder` — 단어·사각형·단어·사각형…
+ * 1:1 교대)으로 고정한다. x 위치는 SOO-1110 의 좌측 우선 빈-자리 채움(`leftmostFreeSlotX`)을 유지한다.
  * 스폰 겹침을 원천 차단하기 위해 릴리즈 간격(RELEASE_STEP)을 가장 큰 낙하 상자 높이(CARD_H=62)
  * 보다 크게(90) 둔다 → 두 상자가 같은 x 로 나더라도 스폰 시점에 세로로 절대 겹치지 않는다.
  * 정착 후 겹침은 matter-js 솔버(positionIterations 10)가 밀어내 해소한다.
@@ -105,13 +105,16 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     const world = createStep1World(W, H, 1);
 
     // SOO-1109 낙하 배치: 기존 '기억된 고정 위치(brickStackX/spreadX)' 대신
-    // ①낙하 순서는 보더 요청 패턴(단어·사각형·사각형·단어…) 으로 고정,
+    // ①낙하 순서는 보더 요청 패턴(단어·사각형·단어·사각형… 1:1 교대) 으로 고정,
     // ②x 위치는 SOO-1110 의 **좌측 우선 빈-자리 채움**(보더 재요청 "좌측부터 차곡차곡 쌓이게").
     //
     // 카드(18) + 장식 사각형(9) 을 하나의 릴리즈 순서 위에 배치한다. wordSlots[i]·squareSlots[j]
     // 는 각각 i번째 카드·j번째 사각형의 릴리즈 슬롯 = 낙하 순서. RELEASE_STEP(90)>최대 상자
     // 높이(62)라 슬롯이 다르면 스폰 시점에 세로로 절대 겹치지 않는다(스폰 겹침 원천 차단).
-    const { wordSlots, squareSlots } = groupedReleaseOrder(VERBS.length, SQUARE_COUNT);
+    // 보더 재요청(SOO-1109 코멘트 `0a52c954`): 낙하 순서를 **단어·보라박스·단어·보라박스**
+    // 1:1 교대로 변경(기존 1단어·2사각형 그룹 → wordsPerGroup=1, squaresPerGroup=1).
+    // 사각형(9)이 단어(18)보다 적으므로 사각형 소진 후 남은 단어는 순서대로 이어진다.
+    const { wordSlots, squareSlots } = groupedReleaseOrder(VERBS.length, SQUARE_COUNT, 1, 1);
 
     // 좌측 우선 빈-자리 채움: 모든 아이템(카드→장식) 폭을 index 순으로 좌→우 스캔해
     // 첫 번째 수용 가능한 자리에 배치하고, 현재 행이 꽉 차면 다음 행으로 넘어간다(x 는 다시 좌측부터).
@@ -136,7 +139,7 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     const cards: CardRef[] = VERBS.map((verb, i) => {
       const w = packWidths[i];
       const x = packX[i]; // 좌측 우선 빈-자리 x
-      const y = slotY(wordSlots[i]); // 낙하 순서(단어·사각형·사각형… 패턴)
+      const y = slotY(wordSlots[i]); // 낙하 순서(단어·사각형·단어·사각형… 1:1 교대)
       const body = makeBoxBody(x, y, w, CARD_H); // 회전 금지(inertia = Infinity)
       // 각속도는 주지 않는다(회전 방지). 아래 방향 속도만 살짝(좌우 편향 없음).
       Matter.Body.setVelocity(body, { x: 0, y: 1 });
@@ -151,7 +154,7 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
       const idx = VERBS.length + i;
       const size = packWidths[idx]; // 30~48px 결정적 변주
       const x = packX[idx]; // 좌측 우선 빈-자리 x
-      const y = slotY(squareSlots[i]); // 낙하 순서(단어·사각형·사각형… 패턴)
+      const y = slotY(squareSlots[i]); // 낙하 순서(단어·사각형·단어·사각형… 1:1 교대)
       const body = makeBoxBody(x, y, size, size); // 회전 금지(inertia = Infinity)
       Matter.Body.setVelocity(body, { x: 0, y: 1 });
       addBody(world, body);
