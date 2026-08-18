@@ -430,9 +430,10 @@ describe('bodiesSettled (SOO-1049 정착 판정)', () => {
 });
 
 describe('DEFAULT_FX_SETTINGS (SOO-1049 후속 보더 요청 값)', () => {
-  it('생성 간격 100ms · 성장 0.2s · 최대 비율 50%', () => {
+  it('생성 간격 100ms · 성장 0.25s(속도 80% 감속) · 최대 비율 100%', () => {
     expect(DEFAULT_FX_SETTINGS.spawnIntervalMs).toBe(100);
-    expect(DEFAULT_FX_SETTINGS.growDurationSec).toBe(0.2);
+    // 성장 속도 80% 감속(SOO-1112 후속): 0.2s → 0.25s.
+    expect(DEFAULT_FX_SETTINGS.growDurationSec).toBe(0.25);
     expect(DEFAULT_FX_SETTINGS.maxSizeRatio).toBe(1);
   });
 });

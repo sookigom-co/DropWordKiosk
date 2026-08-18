@@ -55,6 +55,18 @@ describe('물리 — 중력 낙하·바닥 안착', () => {
   });
 });
 
+describe('튕김 완화(restitution) — 보더 요청 SOO-1112 "덜 튕겨나가게"', () => {
+  it('버블 튕김이 거의 0 에 가깝다(0.02 이하)', () => {
+    const bubble = makeBubbleBody(0, 0, R);
+    expect(bubble.restitution).toBeLessThanOrEqual(0.02);
+  });
+
+  it('단어 원 튕김이 완화되었다(0.1 이하)', () => {
+    const word = makeWordBody(0, 0, R);
+    expect(word.restitution).toBeLessThanOrEqual(0.1);
+  });
+});
+
 describe('단어·버블 동일 비중(밀도) — 보더 요청 SOO-1112', () => {
   it('단어 밀도가 버블 밀도와 같다(SOO-1058 되돌림)', () => {
     expect(WORD_DENSITY).toBe(BUBBLE_DENSITY);
