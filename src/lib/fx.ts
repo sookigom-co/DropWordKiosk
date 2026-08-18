@@ -686,6 +686,33 @@ export function bottomFreeSpawn(
 }
 
 /**
+ * 스테이지 전 영역에서 비겹침 스폰 자리(SOO-1112 재재수정, 보더 피드백).
+ *
+ * 보더 피드백("버블 생성은 다시 랜덤으로 부탁해, 아래에서만 올라오면 의미가 없어"):
+ * 하단 밴드 국한(`bottomFreeSpawn`)을 폐기하고, `randomSpawnPoint` 로 스테이지 곳곳에 균일
+ * 난수로 후보를 뿌린 뒤 **기존 버블**과 겹치지 않는 첫 자리를 고른다 → 버블이 화면 어디서든
+ * 무작위로 태어난다(SOO-1088 완전 랜덤 스폰 분포 복원). 단어는 겹침 검사에서 제외하고
+ * (호출부가 `bubbles` 에 버블만 넘김) `upwardPushTargets` 로 태어나는 순간 위로 사전에
+ * 밀어올린다 — "버블이 단어를 밀어 올린다" invariant 유지(스폰 위치가 랜덤이어도 성립).
+ * 모든 후보가 기존 버블과 겹치면 null → 이번 틱 스폰 보류(겹친 채 생성 금지, 버블 영속).
+ * rndPairs 는 후보 (x, y) 를 정할 [0~1, 0~1] 난수쌍 목록(테스트 주입) — 길이가 후보 시도 횟수.
+ */
+export function randomFreeSpawn(
+  width: number,
+  height: number,
+  startR: number,
+  bubbles: readonly Circle[],
+  rndPairs: readonly (readonly [number, number])[],
+  pad = 0,
+  margin = 40,
+): { x: number; y: number } | null {
+  const candidates = rndPairs.map(([rx, ry]) =>
+    randomSpawnPoint(width, height, rx, ry, startR, margin),
+  );
+  return firstFreeSpawn(candidates, startR, bubbles, pad);
+}
+
+/**
  * 신규 버블 자리를 비우도록 겹치는 단어를 "위로" 밀어올린 목표 y 를 사전 계산(SOO-1112 재수정).
  *
  * 보더 피드백("밀어올리는 것까지 사전에 계산해서 진행하라"): 버블이 겹친 채 태어나 물리 솔버가
