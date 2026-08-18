@@ -7,6 +7,7 @@ import {
   CONTENT_WIDTH,
   resolvePrintWidth,
   resolvePrintType,
+  resolvePrintTypeRuntime,
   buildArticlesOneLine,
   wrapTextByMeasure,
   computeLogoSize,
@@ -64,6 +65,41 @@ describe('resolvePrintType (인쇄 포맷 파싱)', () => {
 
   it('PRINT_TYPE 상수는 테스트 환경(VITE_PRINT_TYPE 미지정)에서 portrait 이다', () => {
     expect(PRINT_TYPE).toBe('portrait');
+  });
+});
+
+describe('resolvePrintTypeRuntime (런타임 쿼리 우선)', () => {
+  it('?print_type=landscape 이면 env 미설정이어도 landscape (재빌드 없이 시험)', () => {
+    expect(resolvePrintTypeRuntime(undefined, '?print_type=landscape')).toBe(
+      'landscape',
+    );
+    expect(resolvePrintTypeRuntime('portrait', '?print_type=landscape')).toBe(
+      'landscape',
+    );
+    expect(
+      resolvePrintTypeRuntime(undefined, '?preview=1&print_type=LANDSCAPE'),
+    ).toBe('landscape');
+  });
+
+  it('?print_type=portrait 이면 env 가 landscape 여도 portrait (런타임 쿼리가 우선)', () => {
+    expect(resolvePrintTypeRuntime('landscape', '?print_type=portrait')).toBe(
+      'portrait',
+    );
+  });
+
+  it('쿼리 미지정이면 빌드타임 env(VITE_PRINT_TYPE) 값으로 폴백한다', () => {
+    expect(resolvePrintTypeRuntime('landscape', '')).toBe('landscape');
+    expect(resolvePrintTypeRuntime('portrait', '?preview=1')).toBe('portrait');
+    expect(resolvePrintTypeRuntime(undefined, '')).toBe('portrait');
+  });
+
+  it('쿼리 값이 빈 값·알 수 없는 값이면 규칙에 따라 처리한다', () => {
+    // 빈 값(print_type=) → 쿼리 무시, env 폴백
+    expect(resolvePrintTypeRuntime('landscape', '?print_type=')).toBe('landscape');
+    // 알 수 없는 값 → resolvePrintType 규칙에 따라 portrait
+    expect(resolvePrintTypeRuntime('landscape', '?print_type=wide')).toBe(
+      'portrait',
+    );
   });
 });
 
