@@ -476,10 +476,10 @@ describe('areaFilled (SOO-1049 후속 4/5 채움 중단)', () => {
   it('면적이 임계 미만이면 false', () => {
     expect(areaFilled([{ x: 50, y: 50, r: 10 }], 100, 100, 0.5)).toBe(false);
   });
-  it('FILL_STOP_RATIO 는 0.8(SOO-1112 — 보더 요청으로 60%→80%, 원 패킹 이론 상한 아래)', () => {
-    // 원은 겹치지 않고 면적의 ~90%(육각 패킹 이론값)를 넘길 수 없다. 80% 는 그 상한 아래이면서
-    // 화면을 더 빽빽하게 채운다. 스폰은 firstFreeSpawn 비중첩 자리에서만 이뤄져 겹침은 없다.
-    expect(FILL_STOP_RATIO).toBe(0.8);
+  it('FILL_STOP_RATIO 는 0.7(SOO-1112 — 보더 요청으로 80%→70%, 원 패킹 이론 상한 아래)', () => {
+    // 원은 겹치지 않고 면적의 ~90%(육각 패킹 이론값)를 넘길 수 없다. 70% 는 그 상한 아래이면서
+    // 80% 보다 여유 있게 채운다. 스폰은 firstFreeSpawn 비중첩 자리에서만 이뤄져 겹침은 없다.
+    expect(FILL_STOP_RATIO).toBe(0.7);
   });
 });
 
