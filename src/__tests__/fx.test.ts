@@ -724,6 +724,21 @@ describe('randomSpawnPoint (SOO-1088 후속 완전 랜덤 스폰 위치)', () =>
     expect(Number.isFinite(p.x)).toBe(true);
     expect(Number.isFinite(p.y)).toBe(true);
   });
+  // SOO-1112: 스폰은 자유 공간 회피 없이 순수 랜덤이며 겹침은 물리 충돌이 밀어내 해소한다.
+  // 자유 공간 검사(firstFreeSpawn)를 스폰 경로에서 걷어냈으므로, "화면 이탈 방지"만이 스폰
+  // 단계에 남는 유일한 불변식이다 — 어떤 난수 조합에서도 버블 중심이 [R, size−R] 안에 있어
+  // 반지름만큼의 원이 화면을 벗어나지 않음을 촘촘한 스윕으로 회귀 검증한다.
+  it('SOO-1112 순수 랜덤 스폰 스윕 — 어떤 난수에서도 화면 이탈 없음(경계 회피만 보장)', () => {
+    for (let i = 0; i <= 20; i++) {
+      for (let j = 0; j <= 20; j++) {
+        const p = randomSpawnPoint(W, H, i / 20, j / 20, R);
+        expect(p.x).toBeGreaterThanOrEqual(R);
+        expect(p.x).toBeLessThanOrEqual(W - R);
+        expect(p.y).toBeGreaterThanOrEqual(R);
+        expect(p.y).toBeLessThanOrEqual(H - R);
+      }
+    }
+  });
 });
 
 describe('randomSpawnZone (SOO-1088 후속 완전 랜덤 거동 선택)', () => {

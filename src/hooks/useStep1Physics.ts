@@ -19,7 +19,6 @@ import {
   burstCount,
   easeOutCubic,
   FILL_STOP_RATIO,
-  firstFreeSpawn,
   growthRadius,
   purpleColor,
   randomSpawnPoint,
@@ -41,21 +40,14 @@ export interface PurpleView {
 
 /**
  * 세션 동안 유지되는 보라색 버블 상한(성능 안전판).
- * 버블은 소멸하지 않으므로(SOO-1049) 비중첩 스폰·물리 충돌이 실질 상한을 만들지만,
+ * 버블은 소멸하지 않으므로(SOO-1049) 랜덤 스폰 후 물리 충돌 밀어내기가 실질 밀도를 만들지만,
  * 라즈베리파이 부하 폭주를 막기 위한 하드 캡을 둔다.
  */
 const MAX_PURPLE = 160;
 /** 단어 원 낙하 시작 간격(ms) — 우수수 떨어지는 스태거. */
 const RELEASE_STAGGER = 110;
-/** 보라 버블 시작 반지름(px) — 하단에서 작게 태어나 상승하며 목표 크기로 성장. */
+/** 보라 버블 시작 반지름(px) — 화면 어디서든 작게 태어나 상승하며 목표 크기로 성장. */
 const PURPLE_START_R = 6;
-/**
- * 하단 스폰 후보 시도 횟수(SOO-1057) — 이 횟수 안에 바닥선에서 다른 버블과
- * 겹치지 않는 자리를 못 찾으면 이번 스폰을 건너뛴다(기존 버블은 유지 — 영속).
- */
-const SPAWN_TRIES = 24;
-/** 스폰 시 기존 버블과 유지할 최소 여유 간격(px). */
-const SPAWN_PAD = 3;
 /** 정착 판정 속도 임계값(matter speed). 이 이하가 유지되면 멈춘 것으로 본다. */
 const SETTLE_SPEED = 0.4;
 /** 정착 유지 시간(ms) — 임계 이하가 이만큼 지속돼야 낙하 완료로 확정. */
@@ -122,8 +114,9 @@ export interface Step1PhysicsApi {
 /**
  * Step1 물리 시뮬레이션 구동 훅(SOO-1048 → SOO-1057 개편).
  * matter-js 로 단어 원 중력 낙하·쌓임을 시뮬레이션하고, 낙하 완료 후에는 보라색
- * 버블이 **스테이지 하단에서 생성되어 부력으로 떠오르며**(동적 강체) 단어를 물리적으로
- * 밀어 올린다. 버블끼리는 스폰 시 겹침 회피 + 동적 충돌로 어떤 시점에도 겹치지 않는다.
+ * 버블이 **화면 전 영역의 랜덤 위치에서 생성되어**(동적 강체) 부력 구역에 따라 떠오르거나
+ * 가라앉으며 단어를 물리적으로 밀어 올린다. 버블끼리는 랜덤 스폰 후 동적 충돌로 서로
+ * 밀어내(SOO-1112) 정착 상태에서 겹치지 않는다 — 스폰 자리 회피가 아니라 밀어내기로 해소.
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
  */
 export function useStep1Physics(
@@ -227,33 +220,24 @@ export function useStep1Physics(
     };
 
     /**
-     * 보라 버블 하나 스폰 시도(SOO-1057 → SOO-1059 이원화 → SOO-1088 삼등분 → 완전 랜덤).
-     * 위치는 `randomSpawnPoint` 로 스테이지 전 영역에서 균일 난수(반지름 클램프로 이탈 방지),
+     * 보라 버블 하나 스폰(SOO-1057 → SOO-1059 이원화 → SOO-1088 삼등분→완전 랜덤 → SOO-1112).
+     * 위치는 `randomSpawnPoint` 로 스테이지 전 영역에서 균일 난수(반지름 클램프로 화면 이탈만
+     * 방지) — 순수 랜덤이라 이미 태어난 버블·단어와 겹친 자리에서도 그대로 태어난다.
+     * 겹침은 "스폰 자리 회피"가 아니라 **동적 강체 충돌로 서로 밀어내며 해소**한다(보더
+     * SOO-1112: "생성은 랜덤에서 시작하되 밀어내야지 겹쳐지면 안 됨"). 버블은 작은 시작
+     * 반지름(PURPLE_START_R=6)으로 태어난 뒤 랜덤 목표 크기로 성장하고, 성장 시 커진 충돌
+     * 형상이 다시 이웃을 밀어내므로 어떤 정착 상태에서도 비중첩이 유지된다.
      * 거동은 인자 `zone`(호출부가 `randomSpawnZone` 으로 난수 선택)에 따른 부력 배율로 결정된다:
      *  - 'bottom' : 부력(BUOYANCY_FACTOR>1)으로 상승
      *  - 'top'    : 감쇠 중력(DESCEND_FACTOR<1)으로 하강
      *  - 'middle' : 중립 부력(NEUTRAL_FACTOR=1)으로 제자리 부유
-     * 다른 버블과 겹치지 않는 자리를 SPAWN_TRIES 안에 찾으면 동적 버블을 만들어 true,
-     * 못 찾으면 생성하지 않고 false(false 여도 기존 버블은 유지 — 영속).
-     * 단어는 스폰 겹침 판정에서 제외 — 버블이 단어를 밀어 올린다/눌러 내린다.
+     * 항상 생성하며(회피·보류 없음) 상한(MAX_PURPLE)까지는 true 를 반환한다.
      */
     const trySpawnPurple = (nowMs: number, zone: SpawnZone): boolean => {
       const s = settingsRef.current;
-      // 비중첩 기준 = 기존 버블들만(현재 반지름 + 여유). 단어는 밀어 올림 대상이라 제외.
-      const bubbleOccupied: Circle[] = purpleSims.map((p) => ({
-        x: p.body.position.x,
-        y: p.body.position.y,
-        r: p.curR,
-      }));
-      const candidates: { x: number; y: number }[] = [];
-      for (let k = 0; k < SPAWN_TRIES; k++) {
-        // 완전 랜덤(SOO-1088 후속): 위치는 전 영역 난수, 거동만 zone 이 결정.
-        candidates.push(
-          randomSpawnPoint(width, height, Math.random(), Math.random(), PURPLE_START_R),
-        );
-      }
-      const spot = firstFreeSpawn(candidates, PURPLE_START_R, bubbleOccupied, SPAWN_PAD);
-      if (!spot) return false; // 스폰 구역에 빈 자리 없음 → 이번 스폰 건너뜀.
+      // 완전 랜덤 스폰(SOO-1112): 자유 공간 검사·회피 없이 전 영역 난수 한 점에서 생성.
+      // 겹치면 동적 충돌이 밀어낸다. randomSpawnPoint 의 반지름 클램프로 화면 이탈만 막는다.
+      const spot = randomSpawnPoint(width, height, Math.random(), Math.random(), PURPLE_START_R);
       const targetR = randomTargetPx(bubblePx, s.maxSizeRatio, Math.random()) / 2;
       const body = makeBubbleBody(spot.x, spot.y, PURPLE_START_R);
       addBody(world, body);
