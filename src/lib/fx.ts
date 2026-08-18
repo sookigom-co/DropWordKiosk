@@ -893,6 +893,30 @@ export function bodiesSettled(speeds: readonly number[], threshold: number): boo
 }
 
 /**
+ * 채움 완료 후 물리 고정까지의 유예(ms) — 보더 요청(SOO-1114): "지정한 범위가 꽉 차고
+ * 2초 정도 뒤에 고정할 수 있을까?" 채움 상한(FILL_STOP_RATIO 또는 MAX_PURPLE) 도달 시점부터
+ * 이 시간 뒤 모든 바디를 정적 고정해 잔여 접촉 해소로 인한 미세 떨림(지터)을 제거한다.
+ */
+export const FREEZE_DELAY_MS = 2000;
+
+/**
+ * 채움 완료 시점(fillCompleteAtMs)으로부터 delayMs 가 지나 고정할 때가 됐는지(SOO-1114).
+ * fillCompleteAtMs 가 null 이면(아직 채움 미완) false. 시간 값이 유한하지 않으면 false 로
+ * 보수 처리한다. 순수 함수라 단위 테스트로 유예 경계를 검증한다.
+ */
+export function freezeDue(
+  fillCompleteAtMs: number | null,
+  nowMs: number,
+  delayMs: number,
+): boolean {
+  if (fillCompleteAtMs == null) return false;
+  if (!Number.isFinite(fillCompleteAtMs) || !Number.isFinite(nowMs) || !Number.isFinite(delayMs)) {
+    return false;
+  }
+  return nowMs - fillCompleteAtMs >= delayMs;
+}
+
+/**
  * Step2 낙하 릴리즈 슬롯 배정(SOO-1054 후속 — 카드·원 균등 교차 낙하).
  *
  * 카드와 원을 개수가 달라도 하나의 릴리즈 순서 위에 균등하게 흩뿌린다.
