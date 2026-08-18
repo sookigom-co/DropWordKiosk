@@ -551,6 +551,58 @@ export function randomBoxX(rnd: number, width: number, halfW: number, margin = 4
   return lo + t * (hi - lo);
 }
 
+/** 좌측 우선 배치를 위해 이미 놓인 상자 하나(center-x·폭). */
+export interface PlacedBox {
+  readonly x: number;
+  readonly w: number;
+}
+
+/**
+ * 좌측 우선 빈-자리 탐색(SOO-1109/1110 스코프 추가 — 보더 "좌측부터 차곡차곡 쌓이게").
+ *
+ * 이미 배치된 같은 행의 상자들 `placed`(각 {x: center, w})와 좌우로 겹치지 않는 가장 왼쪽
+ * center-x 를 좌→우 스캔으로 찾는다. 좌측 벽 여백(margin)부터 시작해, 겹치는 상자를 만나면
+ * 그 우측 끝(+gap) 뒤로 커서를 밀며 첫 수용 가능한 자리를 반환한다. 랜덤 x(randomBoxX)를
+ * 대체해, 낙하 목표 x 가 항상 왼쪽부터 빈틈을 메우도록 결정한다.
+ *
+ * 현재 행에 폭 `boxW` 상자가 더 들어갈 자리가 없으면(우측 벽 초과) `null` → 호출부가 새 행을 시작한다.
+ * placed 는 center-x 오름차순일 필요 없음(내부에서 정렬). gap 은 상자 사이 최소 간격(px).
+ */
+export function leftmostFreeSlotX(
+  placed: readonly PlacedBox[],
+  boxW: number,
+  stageW: number,
+  margin = 40,
+  gap = 8,
+): number | null {
+  const w = Math.max(0, Number.isFinite(boxW) ? boxW : 0);
+  const sw = Math.max(0, Number.isFinite(stageW) ? stageW : 0);
+  const m = Math.max(0, Number.isFinite(margin) ? margin : 0);
+  const g = Math.max(0, Number.isFinite(gap) ? gap : 0);
+  const half = w / 2;
+  const minC = m + half; // 좌측 벽에 붙였을 때의 center-x
+  const maxC = sw - m - half; // 우측 벽에 붙였을 때의 center-x
+  if (minC > maxC) return null; // 상자가 스테이지보다 넓어 어디에도 못 들어감
+
+  // 좌→우로 정렬해 순차 스캔. 커서(후보 center-x)는 단조 증가한다.
+  const sorted = [...placed]
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.w))
+    .sort((a, b) => a.x - b.x);
+  let cursor = minC;
+  for (const p of sorted) {
+    const pLeft = p.x - Math.max(0, p.w) / 2;
+    const pRight = p.x + Math.max(0, p.w) / 2;
+    // 후보 상자 [cursor-half, cursor+half] 가 p(+gap)와 겹치면 p 우측 끝 뒤로 커서 이동.
+    const candLeft = cursor - half;
+    const candRight = cursor + half;
+    if (candRight + g > pLeft && candLeft < pRight + g) {
+      cursor = pRight + g + half;
+    }
+  }
+  if (cursor > maxC + 1e-6) return null;
+  return cursor;
+}
+
 /** 회전각 클램프 결과(SOO-1092). 각도·각속도 보정값과 실제 클램프 여부를 함께 반환. */
 export interface AngleClamp {
   readonly angle: number;
