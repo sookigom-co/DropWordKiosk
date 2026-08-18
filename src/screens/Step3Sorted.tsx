@@ -12,7 +12,7 @@ import {
   clampBoxBodyToStage,
   WORD_BOX_SCALE,
 } from '../lib/physics';
-import { mulberry32, shuffleIndices, leftmostFreeSlotX, type PlacedBox } from '../lib/fx';
+import { groupedReleaseOrder, leftmostFreeSlotX, type PlacedBox } from '../lib/fx';
 
 interface Props {
   selectedId: string | null;
@@ -29,9 +29,10 @@ const CARD_H = Math.round(56 * WORD_BOX_SCALE);
 /**
  * 장식용 보라색 사각형 개수(SOO-1056 보더 재요청 `8b1b6614`).
  * Step 2 의 주황(노란) 원과 같은 역할 — 글자 없고 아무 기능 없는 순수 장식 파티클.
- * SOO-1110: 카드와 같은 랜덤 낙하 순서·랜덤 x 풀을 공유한다(세로 보라 기둥·슬롯 공유 문제 해소).
+ * SOO-1110: 카드와 같은 낙하 순서·x 풀을 공유한다(세로 보라 기둥·슬롯 공유 문제 해소).
+ * SOO-1109: 보더 요청으로 개수 1.5배(6→9).
  */
-const SQUARE_COUNT = 6;
+const SQUARE_COUNT = 9;
 /** 장식 사각형 한 변 길이(px) 기준·증분 — 결정적(랜덤 제거, index 로 변주). */
 const SQUARE_MIN = 30;
 const SQUARE_STEP = 6;
@@ -39,7 +40,8 @@ const SQUARE_STEP = 6;
  * 낙하 릴리즈 밴드 — 상자·장식 사각형을 위쪽 밖에서 순차적으로 떨어뜨려
  * 차곡차곡 쌓이게 한다. 슬롯이 클수록 더 위(늦게 진입).
  *
- * SOO-1110: 낙하 순서를 랜덤화(`shuffleIndices`)하고 x 위치도 랜덤(`randomBoxX`)으로 바꾼다.
+ * SOO-1109: 낙하 순서를 보더 요청 패턴(`groupedReleaseOrder` — 단어·사각형·사각형·단어…)으로
+ * 고정한다. x 위치는 SOO-1110 의 좌측 우선 빈-자리 채움(`leftmostFreeSlotX`)을 유지한다.
  * 스폰 겹침을 원천 차단하기 위해 릴리즈 간격(RELEASE_STEP)을 가장 큰 낙하 상자 높이(CARD_H=62)
  * 보다 크게(90) 둔다 → 두 상자가 같은 x 로 나더라도 스폰 시점에 세로로 절대 겹치지 않는다.
  * 정착 후 겹침은 matter-js 솔버(positionIterations 10)가 밀어내 해소한다.
@@ -102,18 +104,14 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     // Step 1 물리 월드 재사용(좌·우·바닥 벽 — 천장 없음, 위에서 떨어뜨림).
     const world = createStep1World(W, H, 1);
 
-    // SOO-1110 낙하 배치: 기존 '기억된 고정 위치(brickStackX/spreadX)' 대신
-    // ①낙하 순서(어느 상자가 먼저·아래에서 떨어질지)는 무작위,
-    // ②x 위치는 **좌측 우선 빈-자리 채움**(보더 재요청 "좌측부터 차곡차곡 쌓이게").
-    // 세션마다 다른 낙하 순서를 위해 마운트 시 Math.random() 으로 시드를 뽑고, 실제 난수열은
-    // 그 시드 기반 결정적 PRNG(mulberry32)로 재생 → 한 마운트 안에서는 재현 가능(디버깅 용이).
-    const rng = mulberry32(Math.floor(Math.random() * 0xffffffff));
-
-    // 카드(18) + 장식 사각형(6) 을 하나의 릴리즈 순서 위에 무작위로 흩뿌린다.
-    // slots[k] = k번째 아이템(0..N-1)에 배정된 릴리즈 슬롯 = 낙하 순서. RELEASE_STEP(90)>최대
-    // 상자 높이(62)라 슬롯이 다르면 스폰 시점에 세로로 절대 겹치지 않는다(스폰 겹침 원천 차단).
-    const N = VERBS.length + SQUARE_COUNT;
-    const slots = shuffleIndices(N, rng);
+    // SOO-1109 낙하 배치: 기존 '기억된 고정 위치(brickStackX/spreadX)' 대신
+    // ①낙하 순서는 보더 요청 패턴(단어·사각형·사각형·단어…) 으로 고정,
+    // ②x 위치는 SOO-1110 의 **좌측 우선 빈-자리 채움**(보더 재요청 "좌측부터 차곡차곡 쌓이게").
+    //
+    // 카드(18) + 장식 사각형(9) 을 하나의 릴리즈 순서 위에 배치한다. wordSlots[i]·squareSlots[j]
+    // 는 각각 i번째 카드·j번째 사각형의 릴리즈 슬롯 = 낙하 순서. RELEASE_STEP(90)>최대 상자
+    // 높이(62)라 슬롯이 다르면 스폰 시점에 세로로 절대 겹치지 않는다(스폰 겹침 원천 차단).
+    const { wordSlots, squareSlots } = groupedReleaseOrder(VERBS.length, SQUARE_COUNT);
 
     // 좌측 우선 빈-자리 채움: 모든 아이템(카드→장식) 폭을 index 순으로 좌→우 스캔해
     // 첫 번째 수용 가능한 자리에 배치하고, 현재 행이 꽉 차면 다음 행으로 넘어간다(x 는 다시 좌측부터).
@@ -138,7 +136,7 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
     const cards: CardRef[] = VERBS.map((verb, i) => {
       const w = packWidths[i];
       const x = packX[i]; // 좌측 우선 빈-자리 x
-      const y = slotY(slots[i]); // 낙하 순서 랜덤
+      const y = slotY(wordSlots[i]); // 낙하 순서(단어·사각형·사각형… 패턴)
       const body = makeBoxBody(x, y, w, CARD_H); // 회전 금지(inertia = Infinity)
       // 각속도는 주지 않는다(회전 방지). 아래 방향 속도만 살짝(좌우 편향 없음).
       Matter.Body.setVelocity(body, { x: 0, y: 1 });
@@ -153,7 +151,7 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
       const idx = VERBS.length + i;
       const size = packWidths[idx]; // 30~48px 결정적 변주
       const x = packX[idx]; // 좌측 우선 빈-자리 x
-      const y = slotY(slots[idx]); // 낙하 순서 랜덤(카드와 공유 풀)
+      const y = slotY(squareSlots[i]); // 낙하 순서(단어·사각형·사각형… 패턴)
       const body = makeBoxBody(x, y, size, size); // 회전 금지(inertia = Infinity)
       Matter.Body.setVelocity(body, { x: 0, y: 1 });
       addBody(world, body);
