@@ -1,100 +1,83 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
+import type { Target, Transition } from 'framer-motion';
 import { ScreenFrame } from '../components/ScreenFrame';
 import { NextButton } from '../components/NextButton';
-import { typingFrames } from '../lib/jamo';
 import {
   TREATY_TITLE,
   TREATY_ARTICLES,
   formatTreatyFooterDate,
 } from '../data/treaty';
+import { CASCADE, cascadeDelay } from '../lib/treatyCascade';
 
 interface Props {
   onNext: () => void;
 }
 
-// 타이밍 상수(조정 가능).
-// 제1~9조는 동시에 타이핑을 시작한다(보더 요청: 각 라인 동시 출력).
-// 전체 소요 시간 = 가장 긴 조문 1개의 타이핑 시간(~수 초).
-const TYPING_INTERVAL_MS = 30; // 자모 프레임 1개당 진행 간격
-const NEXT_REVEAL_DELAY_MS = 500; // 10조 빈칸 깜박임 표출 후 Next 노출 지연
-
 const LEAD_TEXT =
   '지금까지 완성된 평화 협정문 제 1조부터 제9조에 이어,\n여러분이 선택한 단어로 마지막 제 10조를 완성해\n나만의 평화협정문을 만들어 보세요.';
 
+// 노출 순번(order): 0 = 제목, 1..9 = 제1~9조, 10 = 제10조 빈칸, 11 = 작성일자.
+const ORDER_BLANK = TREATY_ARTICLES.length + 1; // 10
+const ORDER_DATE = ORDER_BLANK + 1; // 11
+
 /**
- * 자모(자음·모음) 분리 타자기 효과 훅.
- * active 가 true 인 동안 프레임을 순차 진행하고, 완료 시 onDone 을 1회 호출한다.
+ * 일반 항목(조문·빈칸·날짜)의 cascade 등장 모션 속성.
+ * 최종 위치보다 offsetY 만큼 아래 + 흐림 + 투명에서 시작 → 제자리로 위로 이동하며 선명해진다.
+ * reduced(모션 최소화 선호) 시 애니메이션 없이 즉시 표시.
  */
-function useJamoTyping(text: string, active: boolean, onDone?: () => void): string {
-  const frames = useMemo(() => typingFrames(text), [text]);
-  const [idx, setIdx] = useState(0);
-  const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
-
-  useEffect(() => {
-    if (!active) return;
-    let fired = false;
-    let i = 0;
-    setIdx(0);
-    const finish = () => {
-      if (!fired) {
-        fired = true;
-        onDoneRef.current?.();
-      }
-    };
-    if (frames.length <= 1) {
-      finish();
-      return;
-    }
-    const id = setInterval(() => {
-      i += 1;
-      setIdx(i);
-      if (i >= frames.length - 1) {
-        clearInterval(id);
-        finish();
-      }
-    }, TYPING_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [active, frames]);
-
-  return frames[Math.min(idx, frames.length - 1)];
+function itemReveal(order: number, reduced: boolean): {
+  initial: Target | false;
+  animate?: Target;
+  transition?: Transition;
+} {
+  if (reduced) return { initial: false };
+  return {
+    initial: { opacity: 0, y: CASCADE.offsetY, filter: `blur(${CASCADE.blurPx}px)` },
+    animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
+    transition: { delay: cascadeDelay(order), duration: CASCADE.itemDur, ease: CASCADE.ease },
+  };
 }
 
-interface ArticleLineProps {
-  index: number;
-  text: string;
-  active: boolean;
-  done: boolean;
-  onDone: () => void;
+/** 제목: 화면 중앙에서 크게 나타났다가(scale↑·아래) 상단 최종 위치로 축소·이동하며 정착. */
+function titleReveal(reduced: boolean): {
+  initial: Target | false;
+  animate?: Target;
+  transition?: Transition;
+} {
+  if (reduced) return { initial: false };
+  return {
+    initial: { opacity: 0, scale: CASCADE.titleScale, y: CASCADE.titleOffsetY },
+    animate: { opacity: 1, scale: 1, y: 0 },
+    transition: { delay: 0, duration: CASCADE.titleDur, ease: CASCADE.ease },
+  };
 }
 
-/** 조문 한 줄 — active 이면 자모 타이핑, done 이면 완성 텍스트 정적 표시. */
-function ArticleLine({ index, text, active, done, onDone }: ArticleLineProps) {
+/** 조문 한 줄 — cascade 등장. 텍스트는 완성본을 그대로 표시(타이핑 없음). */
+function ArticleLine({ index, text, reduced }: { index: number; text: string; reduced: boolean }) {
   const line = `제 ${index + 1}조 ${text}`;
-  const typed = useJamoTyping(line, active, onDone);
-  const shown = done ? line : active ? typed : '';
   return (
-    <p className="treaty__article">
-      <span aria-hidden="true">{shown}</span>
-      {/* 스크린리더는 애니메이션과 무관하게 완성 조문 전체를 읽는다. */}
-      <span className="visually-hidden">{line}</span>
-    </p>
+    <motion.p className="treaty__article" {...itemReveal(index + 1, reduced)}>
+      {line}
+    </motion.p>
   );
 }
 
 /**
  * 제10조 빈칸 마크업(1단계: 문서 내 인라인 / 2단계: 확대).
- * reserved=true 면 자리(높이)는 그대로 차지하되 `visibility: hidden` 으로 감춘다.
- * → 제1~9조 타이핑 중에도 제10조 자리가 사전 확보되어, 실제 표출 시 레이아웃 시프트가 0 이다.
- * visibility:hidden 은 접근성 트리에서도 제외되므로, 감춰진 동안 스크린리더가 "(빈칸)"을 먼저 읽지 않는다.
+ * writing 단계에서는 cascade 로 등장(revealProps 주입), 완료 후 빈칸이 깜박인다.
  */
-function BlankArticle({ zoom, reserved }: { zoom?: boolean; reserved?: boolean }) {
-  const className = zoom
-    ? 'treaty-zoom__article'
-    : `treaty__article treaty__article--blank${reserved ? ' treaty__article--reserved' : ''}`;
+function BlankArticle({
+  zoom,
+  reveal,
+}: {
+  zoom?: boolean;
+  reveal?: { initial: Target | false; animate?: Target; transition?: Transition };
+}) {
+  const className = zoom ? 'treaty-zoom__article' : 'treaty__article treaty__article--blank';
+  const motionProps = reveal ?? {};
   return (
-    <p className={className}>
+    <motion.p className={className} {...motionProps}>
       제 10조 우리는{' '}
       <span
         className={`treaty__blank-line treaty__blank-line--blink${
@@ -103,36 +86,25 @@ function BlankArticle({ zoom, reserved }: { zoom?: boolean; reserved?: boolean }
         aria-hidden="true"
       />
       <span className="visually-hidden">(빈칸)</span> .
-    </p>
+    </motion.p>
   );
 }
 
 /**
  * 화면3 — 협정문.
- * 1단계: 제1~9조 자모 분리 타이핑 "동시" 출력 → 제10조 빈칸 깜박임 → Next 노출.
- * 2단계: Next 클릭 시 제10조 빈칸 확대 + 안내문구 + Next(다음 단계 진행).
+ * 1단계(writing): 제목 → 제1~9조 → 제10조 빈칸 → 작성일자 순 cascade 노출
+ *   (흐림→선명 + 공유 오프셋만큼 아래에서 위로 이동, SOO-1123) → 마지막 항목 정착 후 Next 노출.
+ * 2단계(guide): Next 클릭 시 제10조 빈칸 확대 + 안내문구 + Next(다음 단계 진행).
+ *
+ * 인쇄 canvas/PNG 렌더러(treatyCanvas)는 미변경 — 본 화면 노출 애니메이션만 담당한다.
  */
 export function TreatyScreen({ onNext }: Props) {
   const reduced = !!useReducedMotion();
   // 작성일자는 렌더 시점(마운트 1회)의 기기 로컬 시간 기준으로 동적 생성한다.
   const footerDate = useMemo(() => formatTreatyFooterDate(new Date()), []);
   const [phase, setPhase] = useState<'writing' | 'guide'>('writing');
-  // 완성(타이핑 종료)된 조문 개수. 모션 최소화 선호 시 즉시 전체 표시.
-  const [typedCount, setTypedCount] = useState(reduced ? TREATY_ARTICLES.length : 0);
+  // 모션 최소화 선호 시 cascade 없이 즉시 전체 표시 + Next 노출.
   const [showNext, setShowNext] = useState(reduced);
-
-  const allTyped = typedCount >= TREATY_ARTICLES.length;
-
-  const handleArticleDone = useCallback(() => {
-    setTypedCount((c) => c + 1);
-  }, []);
-
-  // 전체 타이핑 완료 → 빈칸 깜박임 노출 후 Next 표출.
-  useEffect(() => {
-    if (!allTyped || showNext) return;
-    const t = setTimeout(() => setShowNext(true), reduced ? 0 : NEXT_REVEAL_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [allTyped, showNext, reduced]);
 
   if (phase === 'guide') {
     return (
@@ -155,31 +127,26 @@ export function TreatyScreen({ onNext }: Props) {
 
   return (
     <ScreenFrame label="평화 협정문 화면">
-      <motion.article
-        className="treaty"
-        initial={reduced ? false : { opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-      >
-        <h2 className="treaty__title">{TREATY_TITLE}</h2>
+      <article className="treaty">
+        <motion.h2 className="treaty__title" {...titleReveal(reduced)}>
+          {TREATY_TITLE}
+        </motion.h2>
         {TREATY_ARTICLES.map((article, idx) => (
-          <ArticleLine
-            key={idx}
-            index={idx}
-            text={article}
-            // 모든 조문이 동시에 타이핑을 시작한다(순차 X).
-            active={!reduced}
-            done={reduced}
-            onDone={handleArticleDone}
-          />
+          <ArticleLine key={idx} index={idx} text={article} reduced={reduced} />
         ))}
-        {/* 제10조는 처음부터 렌더하여 자리를 사전 확보한다. 타이핑 완료(allTyped) 전에는
-            reserved 로 감춰 두고, 완료 시점에 노출한다 → 등장 순간 다른 조항이 1px 도 밀리지 않는다. */}
-        <BlankArticle reserved={!allTyped} />
-        {/* 서명부: 작성일자만 표기한다. 최하단 작성자 문구('철원 국가유산 야행')는
-            상단 로고와 중복이므로 제거했다(SOO-1090, 화면·인쇄 동일 적용). */}
-        <p className="treaty__footer">{footerDate}</p>
-      </motion.article>
+        {/* 제10조 빈칸도 cascade 로 등장(order=10). 모든 항목이 흐름상 자리를 차지하므로
+            translateY(transform) 이동은 레이아웃을 밀지 않는다 → 시프트 0. */}
+        <BlankArticle reveal={itemReveal(ORDER_BLANK, reduced)} />
+        {/* 서명부: 작성일자만 표기(SOO-1090). 마지막 순번(order=11)으로 등장하며,
+            정착 완료 시점에 Next 를 노출한다. */}
+        <motion.p
+          className="treaty__footer"
+          {...itemReveal(ORDER_DATE, reduced)}
+          onAnimationComplete={reduced ? undefined : () => setShowNext(true)}
+        >
+          {footerDate}
+        </motion.p>
+      </article>
 
       {showNext && <NextButton onClick={() => setPhase('guide')} />}
     </ScreenFrame>
