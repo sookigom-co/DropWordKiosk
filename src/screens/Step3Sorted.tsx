@@ -231,7 +231,12 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
 
   return (
     <ScreenFrame label="STEP3 행동 선택 화면">
-      <div className="card-stage" ref={stageRef} role="group" aria-label="약속을 완성할 행동">
+      <div
+        className="card-stage card-stage--step3"
+        ref={stageRef}
+        role="group"
+        aria-label="약속을 완성할 행동"
+      >
         {ready &&
           cardsRef.current.map((c, idx) => (
             <button
@@ -272,7 +277,7 @@ export function Step3Sorted({ selectedId, onSelect, onNext }: Props) {
                 width: sq.size,
                 height: sq.size,
                 borderRadius: 6,
-                background: 'var(--accent-purple)',
+                background: 'var(--step3-pink)',
                 top: 0,
                 left: 0,
                 pointerEvents: 'none',
