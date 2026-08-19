@@ -13,8 +13,8 @@
   --accent-purple: #7a5cd0;
   --accent-orange: #f2941e;
   --accent-pink: #e0508a;
-  /* SOO-1121: Step3 박스·선택 표시 핑크. 보더 지정 기준색 #c492c0 에서 약간 진하게. */
-  --step3-pink: #b56faf;
+  /* SOO-1121: Step3 박스·선택 표시 핑크. 보더 후속 요청으로 더 밝고 핑크에 가깝게(#b56faf→#f56fa5). */
+  --step3-pink: #f56fa5;
   --accent: var(--accent-purple);
 
   --result-bg: #0e0d0c; /* 완성 문장 화면(검은 배경) */
