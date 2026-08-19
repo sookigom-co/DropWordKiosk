@@ -13,6 +13,8 @@
   --accent-purple: #7a5cd0;
   --accent-orange: #f2941e;
   --accent-pink: #e0508a;
+  /* SOO-1121: Step3 박스·선택 표시 핑크. 보더 지정 기준색 #c492c0 에서 약간 진하게. */
+  --step3-pink: #b56faf;
   --accent: var(--accent-purple);
 
   --result-bg: #0e0d0c; /* 완성 문장 화면(검은 배경) */
@@ -334,6 +336,14 @@ button {
 .card-grid .word-card[aria-pressed='true'] {
   background: var(--accent-pink);
   border-color: var(--accent-pink);
+}
+
+/* SOO-1121: Step3 선택 하이라이트를 핑크로. Step2 는 기존(주황) 유지하도록
+   Step3 전용 모디파이어(.card-stage--step3)로만 스코프한다. */
+.card-stage--step3 .word-card[aria-pressed='true'] {
+  background: var(--step3-pink);
+  border-color: var(--step3-pink);
+  color: #fff;
 }
 
 /* ── 협정문 ──────────────────────────────────────────────────── */
