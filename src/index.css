@@ -432,6 +432,8 @@ button {
   font-weight: 800;
   line-height: 1.4;
   max-width: 20ch;
+  /* 어절 단위 줄바꿈 — 단어가 중간에서 끊기지 않도록 (보더 요청) */
+  word-break: keep-all;
 }
 
 /* ── 미리보기(mock) ───────────────────────────────────────────── */
