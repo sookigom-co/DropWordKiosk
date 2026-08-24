@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { ScreenFrame } from '../components/ScreenFrame';
 import { renderTreatyPng } from '../lib/treatyCanvas';
 import { isFailureState, type PrinterState, type PrintClient } from '../lib/printClient';
@@ -20,6 +20,9 @@ interface Props {
  * 협정문 PNG(432px 흑백)를 만들고, 프린터 상태 확인 후 전송한다.
  * 실패(NO_PAPER/COVER_OPEN/OFFLINE/타임아웃)는 스태프 호출 화면으로 분기한다.
  * 프리뷰 모드(preview)면 프린터 호출 없이 생성된 PNG 를 프리뷰 화면으로 넘긴다.
+ *
+ * 진행 바는 가로 오버플로(스크롤바)를 유발해 제거했다(SOO-1172). 최소 노출 시간
+ * (PRINTING_MIN_MS)만 안내 문구를 유지한다.
  */
 export function PrintingScreen({
   client,
@@ -29,7 +32,6 @@ export function PrintingScreen({
   preview = false,
   onPreview,
 }: Props) {
-  const [percent, setPercent] = useState(8);
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -40,18 +42,11 @@ export function PrintingScreen({
     let cancelled = false;
     const startedAt = Date.now();
 
-    // 진행 바를 부드럽게 채움(실제 완료 전까지 90% 상한)
-    const progress = setInterval(() => {
-      setPercent((p) => (p < 90 ? p + 4 : p));
-    }, 200);
-
     const finish = async (fn: () => void) => {
       const elapsed = Date.now() - startedAt;
       const wait = Math.max(0, PRINTING_MIN_MS - elapsed);
       await new Promise((r) => setTimeout(r, wait));
       if (cancelled) return;
-      clearInterval(progress);
-      setPercent(100);
       fn();
     };
 
@@ -89,23 +84,14 @@ export function PrintingScreen({
 
     return () => {
       cancelled = true;
-      clearInterval(progress);
     };
   }, [client, sentence, onSuccess, onError, preview, onPreview]);
 
   return (
     <ScreenFrame label="인쇄 진행 화면">
-      <h2 className="screen__subtitle">{'인쇄 중입니다.\n잠시만 기다려 주세요.'}</h2>
-      <div
-        className="progress"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-        aria-label="인쇄 진행률"
-      >
-        <div className="progress__fill" style={{ width: `${percent}%` }} />
-      </div>
+      <h2 className="screen__subtitle screen__subtitle--printing">
+        {'인쇄 중입니다.\n잠시만 기다려 주세요.'}
+      </h2>
     </ScreenFrame>
   );
 }
