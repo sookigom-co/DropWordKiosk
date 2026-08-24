@@ -1,8 +1,15 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useKiosk } from './state/useKiosk';
 import { useIdleTimeout } from './lib/useIdleTimeout';
 import { IDLE_TIMEOUT_MS } from './state/config';
 import { createPrintClient, isPreviewMode, type PrinterState } from './lib/printClient';
+import {
+  ADMIN_TAP_COUNT,
+  ADMIN_TAP_WINDOW_MS,
+  pushTap,
+  tapTriggered,
+} from './lib/tapSequence';
+import { AdminMenu } from './components/AdminMenu';
 import { Logo } from './components/Logo';
 import { StartScreen } from './screens/StartScreen';
 import { IntroScreen } from './screens/IntroScreen';
@@ -37,6 +44,8 @@ export default function App() {
   const preview = useMemo(() => isPreviewMode(), []);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [errorState, setErrorState] = useState<PrinterState>('ERROR');
+  const [adminOpen, setAdminOpen] = useState(false);
+  const tapHistory = useRef<number[]>([]);
 
   const resetAll = useCallback(() => {
     setPreviewUrl(null);
@@ -44,7 +53,19 @@ export default function App() {
     kiosk.reset();
   }, [kiosk]);
 
-  useIdleTimeout(resetAll, IDLE_TIMEOUT_MS, IDLE_WATCHED.has(kiosk.step));
+  // 로고 비밀 탭 시퀀스(3초 내 5회) → 관리자 메뉴 오픈(SOO-1170).
+  const handleSecretTap = useCallback(() => {
+    const now = Date.now();
+    const next = pushTap(tapHistory.current, now, ADMIN_TAP_WINDOW_MS);
+    tapHistory.current = next;
+    if (tapTriggered(next, ADMIN_TAP_COUNT)) {
+      tapHistory.current = [];
+      setAdminOpen(true);
+    }
+  }, []);
+
+  // 관리자 메뉴가 열려 있는 동안은 무입력 타임아웃으로 초기 화면으로 튕기지 않는다.
+  useIdleTimeout(resetAll, IDLE_TIMEOUT_MS, IDLE_WATCHED.has(kiosk.step) && !adminOpen);
 
   const handleSuccess = useCallback(
     (url: string) => {
@@ -78,8 +99,11 @@ export default function App() {
       ) : (
         client.mock && <div className="mock-badge">MOCK</div>
       )}
-      <Logo />
+      <Logo onSecretTap={handleSecretTap} />
       {renderStep()}
+      {adminOpen && (
+        <AdminMenu client={client} preview={preview} onClose={() => setAdminOpen(false)} />
+      )}
     </div>
   );
 

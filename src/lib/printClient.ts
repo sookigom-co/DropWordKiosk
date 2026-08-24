@@ -50,10 +50,23 @@ export interface PrintMeta {
   action?: string;
 }
 
+/**
+ * 관리자 재부팅 결과(계약: CTO 확정, SOO-1170).
+ *   - 성공 200 `{ "result": "rebooting" }`
+ *   - 실패 500 `{ "error": { "code": "REBOOT_FAILED", "message"? } }`
+ */
+export interface RebootResult {
+  ok: boolean;
+  message?: string;
+  raw?: unknown;
+}
+
 export interface PrintClient {
   readonly mock: boolean;
   getStatus(): Promise<StatusResult>;
   print(png: Blob, meta?: PrintMeta): Promise<PrintResult>;
+  /** 관리자 재부팅 요청(`POST /v1/admin/reboot`). */
+  reboot(): Promise<RebootResult>;
 }
 
 // 통합 배포(에이전트가 kiosk dist/ 를 same-origin 으로 서빙)에서는 상대 경로로 호출한다.
@@ -62,6 +75,7 @@ export interface PrintClient {
 const DEFAULT_BASE = '';
 const STATUS_TIMEOUT_MS = 4000;
 const PRINT_TIMEOUT_MS = 20000;
+const REBOOT_TIMEOUT_MS = 8000;
 
 /** 실패 상태(스태프 호출로 분기해야 하는 상태) 판별 */
 export function isFailureState(state: PrinterState): boolean {
@@ -204,6 +218,40 @@ export function interpretPrintResponse(
   return { ok: false, state: normalizeState(raw), message: `HTTP ${httpStatus}`, raw };
 }
 
+/**
+ * `POST /v1/admin/reboot` 응답을 계약(SOO-1170) 기준으로 해석한다.
+ *   - 성공: `result === "rebooting"` → ok
+ *   - 실패: `error.code`(REBOOT_FAILED 등) 존재 시 message 를 안내
+ *   - 그 외: HTTP 상태로 폴백
+ */
+export function interpretRebootResponse(
+  httpOk: boolean,
+  httpStatus: number,
+  raw: unknown,
+): RebootResult {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+
+  if (String(r.result ?? '').toLowerCase() === 'rebooting') {
+    return { ok: true, raw };
+  }
+
+  const errObj =
+    r.error && typeof r.error === 'object' ? (r.error as Record<string, unknown>) : undefined;
+  if (errObj) {
+    return {
+      ok: false,
+      message: asString(errObj.message) ?? '재부팅 요청에 실패했습니다.',
+      raw,
+    };
+  }
+
+  // 하위 호환: 구형 ok/success 필드
+  if (httpOk && (r.ok === true || r.success === true)) {
+    return { ok: true, raw };
+  }
+  return { ok: false, message: `재부팅 요청 실패 (HTTP ${httpStatus})`, raw };
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -260,6 +308,24 @@ class HttpPrintClient implements PrintClient {
       return { ok: false, state: 'OFFLINE', message: '인쇄 요청 시간 초과 또는 연결 실패' };
     }
   }
+
+  async reboot(): Promise<RebootResult> {
+    try {
+      const res = await fetchWithTimeout(
+        `${this.base}/v1/admin/reboot`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: '{}',
+        },
+        REBOOT_TIMEOUT_MS,
+      );
+      const raw = await res.json().catch(() => ({}));
+      return interpretRebootResponse(res.ok, res.status, raw);
+    } catch {
+      return { ok: false, message: '재부팅 요청 시간 초과 또는 연결 실패' };
+    }
+  }
 }
 
 /** 개발/데모용 목(mock) 클라이언트 — 실제 에이전트 없이 전체 흐름 검증 */
@@ -279,6 +345,11 @@ class MockPrintClient implements PrintClient {
       return { ok: false, state, message: 'mock 실패 시뮬레이션' };
     }
     return { ok: true, state: 'READY', jobId: 'mock-job', message: 'mock 인쇄 완료' };
+  }
+
+  async reboot(): Promise<RebootResult> {
+    await delay(600);
+    return { ok: true, message: 'mock 재부팅 요청(실제 호출 없음)' };
   }
 }
 

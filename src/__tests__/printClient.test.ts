@@ -3,6 +3,7 @@ import {
   blobToBase64,
   createPrintClient,
   interpretPrintResponse,
+  interpretRebootResponse,
   mapErrorCode,
   resolveAgentBase,
   stripDataUrlPrefix,
@@ -152,6 +153,57 @@ describe('HttpPrintClient.print (계약 v1 JSON base64)', () => {
     const result = await client.print(pngBlob());
     expect(result.ok).toBe(false);
     expect(result.state).toBe('OFFLINE');
+  });
+});
+
+describe('interpretRebootResponse (SOO-1170 재부팅 계약)', () => {
+  it('성공 200 { result: "rebooting" } → ok=true', () => {
+    expect(interpretRebootResponse(true, 200, { result: 'rebooting' })).toMatchObject({ ok: true });
+  });
+
+  it('실패 500 { error: { code: REBOOT_FAILED, message } } → ok=false + message 전달', () => {
+    const r = interpretRebootResponse(false, 500, {
+      error: { code: 'REBOOT_FAILED', message: '재부팅 스크립트 실패' },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe('재부팅 스크립트 실패');
+  });
+
+  it('error 만 있고 message 가 없으면 기본 안내 문구를 준다', () => {
+    const r = interpretRebootResponse(false, 500, { error: { code: 'REBOOT_FAILED' } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe('재부팅 요청에 실패했습니다.');
+  });
+
+  it('알 수 없는 응답은 HTTP 상태로 폴백한다', () => {
+    const r = interpretRebootResponse(false, 502, {});
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('502');
+  });
+});
+
+describe('HttpPrintClient.reboot (POST /v1/admin/reboot)', () => {
+  it('성공 시 same-origin 상대 경로로 POST 하고 ok=true 를 반환한다', async () => {
+    const fn = mockFetch({ ok: true, status: 200, json: { result: 'rebooting' } });
+    const client = createPrintClient();
+    const result = await client.reboot();
+    expect(result.ok).toBe(true);
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/v1/admin/reboot');
+    expect(init.method).toBe('POST');
+  });
+
+  it('네트워크 오류 시 ok=false(안내 문구) 로 분기한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      }) as unknown as typeof fetch,
+    );
+    const client = createPrintClient();
+    const result = await client.reboot();
+    expect(result.ok).toBe(false);
+    expect(result.message).toBeTruthy();
   });
 });
 

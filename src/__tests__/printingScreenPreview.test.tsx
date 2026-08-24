@@ -22,6 +22,7 @@ function fakeClient(overrides: Partial<PrintClient> = {}): PrintClient {
     mock: false,
     getStatus: vi.fn(async (): Promise<StatusResult> => ({ state: 'READY' })),
     print: vi.fn(async (): Promise<PrintResult> => ({ ok: true, state: 'READY', jobId: 'j' })),
+    reboot: vi.fn(async () => ({ ok: true })),
     ...overrides,
   };
 }

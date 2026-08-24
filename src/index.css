@@ -487,6 +487,89 @@ button {
   letter-spacing: 0.05em;
 }
 
+/* ── 관리자 메뉴 오버레이 (SOO-1170) ─────────────────────────────
+   로고 5탭으로 진입하는 운영자 전용 모달. 키오스크 톤(768×1024) 정합. */
+.admin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(14, 13, 12, 0.72);
+}
+.admin-panel {
+  width: min(560px, 92vw);
+  max-height: 92dvh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: clamp(28px, 5vw, 48px);
+  text-align: center;
+  background: var(--bg-elev);
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+.admin-panel__title {
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 800;
+  margin: 0;
+  color: var(--ink);
+}
+.admin-panel__lead {
+  font-size: clamp(16px, 2.6vw, 22px);
+  line-height: 1.6;
+  color: var(--ink-soft);
+  white-space: pre-line;
+  margin: 0;
+}
+.admin-panel__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+.admin-btn {
+  min-height: var(--touch-min);
+  width: 100%;
+  padding: 18px 28px;
+  font-size: clamp(18px, 3vw, 24px);
+  font-weight: 700;
+  color: #fff;
+  background: var(--ink);
+  border: none;
+  border-radius: 14px;
+  letter-spacing: 0.04em;
+}
+.admin-btn--danger {
+  background: var(--accent-pink);
+}
+.admin-btn--ghost {
+  color: var(--ink);
+  background: transparent;
+  border: 2px solid var(--line);
+}
+.admin-btn:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+}
+.admin-preview {
+  width: 100%;
+  max-height: 60dvh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.admin-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 /* 저사양(라즈베리파이) 대비: 모션 최소화 선호 시 애니메이션 축소 */
 @media (prefers-reduced-motion: reduce) {
   * {
