@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScreenFrame } from '../components/ScreenFrame';
 import { renderTreatyPng } from '../lib/treatyCanvas';
 import { isFailureState, type PrinterState, type PrintClient } from '../lib/printClient';
@@ -13,6 +13,12 @@ interface Props {
   preview?: boolean;
   /** 프리뷰 모드에서 PNG 생성 후 호출 — 미리보기 화면으로 분기 */
   onPreview?: (previewUrl: string) => void;
+  /**
+   * 축소(compact) 변형 — 진행바를 숨기고 안내 문구 폰트를 줄여 768×1024 에서
+   * 스크롤바가 나지 않도록 한다. 관리자 메뉴 테스트 프린트 경로에서만 사용한다(SOO-1173).
+   * 기본값(false)은 일반 사용자 인쇄 플로우로, 진행바 + 원래 폰트를 유지한다.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -21,8 +27,8 @@ interface Props {
  * 실패(NO_PAPER/COVER_OPEN/OFFLINE/타임아웃)는 스태프 호출 화면으로 분기한다.
  * 프리뷰 모드(preview)면 프린터 호출 없이 생성된 PNG 를 프리뷰 화면으로 넘긴다.
  *
- * 진행 바는 가로 오버플로(스크롤바)를 유발해 제거했다(SOO-1172). 최소 노출 시간
- * (PRINTING_MIN_MS)만 안내 문구를 유지한다.
+ * 사용자 플로우는 진행바 + 원래 폰트를 그대로 쓴다. 관리자 테스트 프린트에서만
+ * compact 변형(진행바 제거 + 폰트 축소)을 적용해 스크롤바를 막는다(SOO-1173).
  */
 export function PrintingScreen({
   client,
@@ -31,7 +37,9 @@ export function PrintingScreen({
   onError,
   preview = false,
   onPreview,
+  compact = false,
 }: Props) {
+  const [percent, setPercent] = useState(8);
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -42,11 +50,18 @@ export function PrintingScreen({
     let cancelled = false;
     const startedAt = Date.now();
 
+    // 진행 바를 부드럽게 채움(실제 완료 전까지 90% 상한)
+    const progress = setInterval(() => {
+      setPercent((p) => (p < 90 ? p + 4 : p));
+    }, 200);
+
     const finish = async (fn: () => void) => {
       const elapsed = Date.now() - startedAt;
       const wait = Math.max(0, PRINTING_MIN_MS - elapsed);
       await new Promise((r) => setTimeout(r, wait));
       if (cancelled) return;
+      clearInterval(progress);
+      setPercent(100);
       fn();
     };
 
@@ -84,14 +99,27 @@ export function PrintingScreen({
 
     return () => {
       cancelled = true;
+      clearInterval(progress);
     };
   }, [client, sentence, onSuccess, onError, preview, onPreview]);
 
   return (
     <ScreenFrame label="인쇄 진행 화면">
-      <h2 className="screen__subtitle screen__subtitle--printing">
+      <h2 className={`screen__subtitle${compact ? ' screen__subtitle--printing' : ''}`}>
         {'인쇄 중입니다.\n잠시만 기다려 주세요.'}
       </h2>
+      {!compact && (
+        <div
+          className="progress"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+          aria-label="인쇄 진행률"
+        >
+          <div className="progress__fill" style={{ width: `${percent}%` }} />
+        </div>
+      )}
     </ScreenFrame>
   );
 }

@@ -121,7 +121,8 @@ button {
   margin: 0;
   white-space: pre-line;
 }
-/* 인쇄 중 화면(화면12) 한정 축소 — 가로 오버플로(스크롤바) 방지(SOO-1172). */
+/* 관리자 테스트 프린트의 인쇄 중 화면(compact) 한정 축소 — 768×1024 스크롤바 방지(SOO-1172/1173).
+   사용자 인쇄 플로우는 이 클래스를 쓰지 않아 원래 폰트를 유지한다. */
 .screen__subtitle--printing {
   font-size: clamp(18px, 2.8vw, 26px);
 }

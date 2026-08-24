@@ -172,6 +172,7 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
             onError={handleTestError}
             preview={preview}
             onPreview={handleTestPreview}
+            compact
           />
         );
 
