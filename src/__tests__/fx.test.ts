@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_FX_SETTINGS,
+  STEP2_MAX_SIZE_RATIO,
   FILL_STOP_RATIO,
   FREEZE_DELAY_MS,
   freezeDue,
@@ -434,17 +435,17 @@ describe('bodiesSettled (SOO-1049 정착 판정)', () => {
   });
 });
 
-describe('freezeDue (SOO-1114 채움 완료 후 2초 고정)', () => {
-  it('기본 유예는 2000ms', () => {
-    expect(FREEZE_DELAY_MS).toBe(2000);
+describe('freezeDue (SOO-1114 채움 완료 후 고정, SOO-1175 로 유예 1초)', () => {
+  it('기본 유예는 1000ms', () => {
+    expect(FREEZE_DELAY_MS).toBe(1000);
   });
   it('채움 미완(null)이면 항상 false', () => {
     expect(freezeDue(null, 999999, FREEZE_DELAY_MS)).toBe(false);
   });
   it('유예 경과 전에는 false, 정확히 경과 시점부터 true', () => {
     const t0 = 5000;
-    expect(freezeDue(t0, t0 + 1999, FREEZE_DELAY_MS)).toBe(false);
-    expect(freezeDue(t0, t0 + 2000, FREEZE_DELAY_MS)).toBe(true);
+    expect(freezeDue(t0, t0 + 999, FREEZE_DELAY_MS)).toBe(false);
+    expect(freezeDue(t0, t0 + 1000, FREEZE_DELAY_MS)).toBe(true);
     expect(freezeDue(t0, t0 + 5000, FREEZE_DELAY_MS)).toBe(true);
   });
   it('비유한 입력은 보수적으로 false', () => {
@@ -454,12 +455,31 @@ describe('freezeDue (SOO-1114 채움 완료 후 2초 고정)', () => {
   });
 });
 
-describe('DEFAULT_FX_SETTINGS (SOO-1049 후속 보더 요청 값)', () => {
-  it('생성 간격 100ms · 성장 1.0s(추가 감속) · 최대 비율 100%', () => {
+describe('DEFAULT_FX_SETTINGS (SOO-1049 후속 보더 요청 값, SOO-1175 최대 비율 90%)', () => {
+  it('생성 간격 100ms · 성장 1.0s(추가 감속) · 최대 비율 90%', () => {
     expect(DEFAULT_FX_SETTINGS.spawnIntervalMs).toBe(100);
     // 성장 속도 추가 감속(SOO-1112 후속): 0.4s → 1.0s.
     expect(DEFAULT_FX_SETTINGS.growDurationSec).toBe(1);
-    expect(DEFAULT_FX_SETTINGS.maxSizeRatio).toBe(1);
+    // Step1 보라 원 최대 크기 축소(SOO-1175): 100% → 90%.
+    expect(DEFAULT_FX_SETTINGS.maxSizeRatio).toBe(0.9);
+  });
+});
+
+describe('Step1 보라 원 최대 크기 90% 축소 (SOO-1175)', () => {
+  const bubble = 132; // 참조 지름
+  it('Step1 실효 최대 지름 = 현행(100%) 대비 0.9배', () => {
+    const before = maxCirclePx(bubble, 1); // 현행 기준(비율 1.0)
+    const after = maxCirclePx(bubble, DEFAULT_FX_SETTINGS.maxSizeRatio); // 90%
+    expect(after).toBeCloseTo(before * 0.9);
+    expect(after).toBeCloseTo(bubble * 0.9);
+  });
+  it('Step1 랜덤 목표 지름 상한(rnd=1)도 90%', () => {
+    expect(randomTargetPx(bubble, DEFAULT_FX_SETTINGS.maxSizeRatio, 1)).toBeCloseTo(bubble * 0.9);
+  });
+  it('Step2 대역은 회귀 없음 — STEP2_MAX_SIZE_RATIO=1, purpleScaleRadius 기본 상한 유지', () => {
+    expect(STEP2_MAX_SIZE_RATIO).toBe(1);
+    // 기본 ratio 로 호출하는 Step2 경로는 여전히 지름 100%의 절반이 상한.
+    expect(purpleScaleRadius(bubble, 1)).toBeCloseTo(bubble / 2);
   });
 });
 
