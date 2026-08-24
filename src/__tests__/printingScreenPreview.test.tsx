@@ -78,6 +78,47 @@ describe('PrintingScreen 프리뷰 분기 (SOO-1099)', () => {
     expect(onPreview).toHaveBeenCalledWith('data:image/png;base64,PREVIEW');
   });
 
+  it('기본(사용자 플로우): 진행바(progressbar) 표시 + 축소 폰트 클래스 없음 (SOO-1173)', async () => {
+    const client = fakeClient();
+
+    await act(async () => {
+      root.render(
+        createElement(PrintingScreen, {
+          client,
+          sentence: '평화로운 경계선을 지운다',
+          onSuccess: vi.fn(),
+          onError: vi.fn(),
+        }),
+      );
+    });
+
+    expect(container.querySelector('[role="progressbar"]')).not.toBeNull();
+    expect(container.querySelector('.screen__subtitle--printing')).toBeNull();
+
+    await drain();
+  });
+
+  it('compact(관리자 테스트 프린트): 진행바 제거 + 축소 폰트 클래스 적용 (SOO-1173)', async () => {
+    const client = fakeClient();
+
+    await act(async () => {
+      root.render(
+        createElement(PrintingScreen, {
+          client,
+          sentence: '평화로운 경계선을 지운다',
+          onSuccess: vi.fn(),
+          onError: vi.fn(),
+          compact: true,
+        }),
+      );
+    });
+
+    expect(container.querySelector('[role="progressbar"]')).toBeNull();
+    expect(container.querySelector('.screen__subtitle--printing')).not.toBeNull();
+
+    await drain();
+  });
+
   it('프리뷰 OFF(기본): 기존 인쇄 경로 — client.print 호출 + onSuccess', async () => {
     const client = fakeClient();
     const onPreview = vi.fn();
