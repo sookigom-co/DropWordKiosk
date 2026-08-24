@@ -42,8 +42,12 @@ export const FX_RANGES: Readonly<Record<keyof FxSettings, FxRange>> = {
 
 /**
  * 기본 효과 설정. 보더 요청(SOO-1049 후속)에 맞춘 값:
- * - 생성 간격 0.1s(100ms) · 성장 시간 1.0s · 최대 크기 비율 100%(단어 원 지름과 동일).
- *   공 크기는 단어 원 지름의 50%(최소)~100%(최대) 사이에서 랜덤(보더 요청).
+ * - 생성 간격 0.1s(100ms) · 성장 시간 1.0s · 최대 크기 비율 90%(SOO-1175).
+ *   공 크기는 단어 원 지름의 45%(최소)~90%(최대) 사이에서 랜덤(상한이 90%로 내려가며
+ *   하한도 상한의 50%인 45%로 비례 축소된다 — 자연스러운 부수효과).
+ * - 최대 크기 비율 100% → 90%: 보더 요청(SOO-1175)으로 Step1 보라 원 최대 크기를 현행 대비
+ *   90%로 축소. Step1 물리 훅이 이 값(s.maxSizeRatio)을 그대로 참조한다. Step2 낙하 도형은
+ *   전용 상수(STEP2_MAX_SIZE_RATIO=1)를 쓰므로 크기 대역 회귀 없음.
  * - 성장 시간 0.4s → 1.0s: 보더 요청(SOO-1112 후속)으로 성장 속도를 추가 감속.
  *   같은 목표 반지름을 더 긴 시간에 걸쳐 천천히 키우면 틱당 반경 증가(=이웃 침투)가 줄어
  *   충돌 해소 충격량이 작아져 버블이 덜 튕겨 나가고, 커지는 모습이 더 부드럽게 보인다.
@@ -52,9 +56,16 @@ export const DEFAULT_FX_SETTINGS: FxSettings = {
   gravity: 1,
   spawnIntervalMs: 100,
   growDurationSec: 1,
-  maxSizeRatio: 1,
+  maxSizeRatio: 0.9,
   hue: 262,
 };
+
+/**
+ * Step2 낙하 도형(주황 원)의 크기 대역 비율(SOO-1175). Step1 보라 원 최대 크기가 90%로
+ * 축소돼도(DEFAULT_FX_SETTINGS.maxSizeRatio) Step2 대역은 현행(100%)을 유지하기 위해
+ * purpleScaleRadius 의 기본 ratio 로 쓰인다 — Step1/Step2 크기 결합을 끊는 전용 상수.
+ */
+export const STEP2_MAX_SIZE_RATIO = 1;
 
 /** 값을 [min, max] 로 클램프. NaN/비유한 값은 min 으로 안전화. */
 export function clampRange(value: number, range: FxRange): number {
@@ -112,13 +123,14 @@ export function referenceBubblePx(width: number): number {
 /**
  * Step1 보라색 원과 동일한 스케일 대역에서 샘플링한 랜덤 반지름(px)(SOO-1054).
  * randomTargetPx(=보라 원 목표 지름: 참조 지름의 50%~100%)를 그대로 재사용해 지름을 얻고 /2.
- * ratio 기본값은 Step1 기본 설정(maxSizeRatio)과 동일 → 매직 넘버 중복 없이 같은 대역 보장.
+ * ratio 기본값은 STEP2_MAX_SIZE_RATIO(=1) — Step1 기본 최대 비율이 90%로 축소돼도(SOO-1175)
+ * Step2 낙하 도형 크기 대역은 현행(100%)을 유지하도록 Step1 설정과 결합을 끊었다.
  * rnd 는 0~1 난수(테스트 주입).
  */
 export function purpleScaleRadius(
   bubblePx: number,
   rnd: number,
-  ratio: number = DEFAULT_FX_SETTINGS.maxSizeRatio,
+  ratio: number = STEP2_MAX_SIZE_RATIO,
 ): number {
   return randomTargetPx(bubblePx, ratio, rnd) / 2;
 }
@@ -893,11 +905,11 @@ export function bodiesSettled(speeds: readonly number[], threshold: number): boo
 }
 
 /**
- * 채움 완료 후 물리 고정까지의 유예(ms) — 보더 요청(SOO-1114): "지정한 범위가 꽉 차고
- * 2초 정도 뒤에 고정할 수 있을까?" 채움 상한(FILL_STOP_RATIO 또는 MAX_PURPLE) 도달 시점부터
- * 이 시간 뒤 모든 바디를 정적 고정해 잔여 접촉 해소로 인한 미세 떨림(지터)을 제거한다.
+ * 채움 완료 후 물리 고정까지의 유예(ms) — 보더 요청(SOO-1114 도입, SOO-1175 로 2초→1초 단축):
+ * 채움 상한(FILL_STOP_RATIO 또는 MAX_PURPLE) 도달 시점부터 이 시간 뒤 모든 바디를 정적 고정해
+ * 잔여 접촉 해소로 인한 미세 떨림(지터)을 제거한다.
  */
-export const FREEZE_DELAY_MS = 2000;
+export const FREEZE_DELAY_MS = 1000;
 
 /**
  * 채움 완료 시점(fillCompleteAtMs)으로부터 delayMs 가 지나 고정할 때가 됐는지(SOO-1114).

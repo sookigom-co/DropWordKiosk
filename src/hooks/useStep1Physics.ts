@@ -113,7 +113,7 @@ export interface Step1PhysicsApi {
  * 솔버가 "부르르 떨리는" 현상 없이 스폰 직후 프레임부터 겹침 0. 빈자리가 없으면 이번 틱 스폰을
  * 건너뛰고(영속 유지), 화면은 70%(FILL_STOP_RATIO)까지 채운다(비중첩 스폰 유지, 채움 조절).
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
- * 채움 상한 도달 후 약 2초(FREEZE_DELAY_MS) 뒤 전체 바디를 정적 고정(freezeBody)하고 rAF
+ * 채움 상한 도달 후 약 1초(FREEZE_DELAY_MS) 뒤 전체 바디를 정적 고정(freezeBody)하고 rAF
  * 루프를 멈춰, 솔버 잔여 접촉 해소로 인한 미세 떨림(지터)을 완전히 제거한다(SOO-1114).
  */
 export function useStep1Physics(
