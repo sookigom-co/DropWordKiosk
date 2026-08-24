@@ -121,6 +121,10 @@ button {
   margin: 0;
   white-space: pre-line;
 }
+/* 인쇄 중 화면(화면12) 한정 축소 — 가로 오버플로(스크롤바) 방지(SOO-1172). */
+.screen__subtitle--printing {
+  font-size: clamp(18px, 2.8vw, 26px);
+}
 .screen__lead {
   font-size: clamp(16px, 2.6vw, 24px);
   line-height: 1.7;
