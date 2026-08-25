@@ -5,6 +5,9 @@ import {
   interpretPrintResponse,
   interpretExitKioskResponse,
   interpretRebootResponse,
+  interpretRemoteSupportResponse,
+  parseRemoteSupportStatus,
+  remoteSupportLabel,
   mapErrorCode,
   resolveAgentBase,
   stripDataUrlPrefix,
@@ -254,6 +257,116 @@ describe('HttpPrintClient.exitKiosk (POST /v1/admin/exit-kiosk)', () => {
     );
     const client = createPrintClient();
     const result = await client.exitKiosk();
+    expect(result.ok).toBe(false);
+    expect(result.message).toBeTruthy();
+  });
+});
+
+describe('parseRemoteSupportStatus / remoteSupportLabel (SOO-1186 원격 지원 계약 v1)', () => {
+  it('상태 필드를 방어적으로 정규화한다', () => {
+    const s = parseRemoteSupportStatus({
+      desired: true,
+      running: true,
+      pid: 4242,
+      startedAt: '2026-01-01T00:00:00Z',
+      lastExitCode: 0,
+      lastError: null,
+    });
+    expect(s).toEqual({
+      desired: true,
+      running: true,
+      pid: 4242,
+      startedAt: '2026-01-01T00:00:00Z',
+      lastExitCode: 0,
+      lastError: null,
+    });
+  });
+
+  it('누락·비정상 필드는 안전 기본값(false/null)으로 채운다', () => {
+    const s = parseRemoteSupportStatus({ desired: 'yes', pid: 'x', startedAt: '' });
+    expect(s).toEqual({
+      desired: false,
+      running: false,
+      pid: null,
+      startedAt: null,
+      lastExitCode: null,
+      lastError: null,
+    });
+  });
+
+  it('desired/running 조합을 한국어 라벨로 구분한다', () => {
+    expect(remoteSupportLabel(null)).toBe('꺼짐');
+    expect(remoteSupportLabel(parseRemoteSupportStatus({ desired: false }))).toBe('꺼짐');
+    expect(remoteSupportLabel(parseRemoteSupportStatus({ desired: true, running: false }))).toBe(
+      '연결 시도 중',
+    );
+    expect(remoteSupportLabel(parseRemoteSupportStatus({ desired: true, running: true }))).toBe(
+      '연결됨',
+    );
+  });
+});
+
+describe('interpretRemoteSupportResponse (SOO-1186 원격 지원 계약 v1)', () => {
+  it('성공 200 + 상태 객체 → ok=true + status 파싱', () => {
+    const r = interpretRemoteSupportResponse(true, 200, {
+      desired: true,
+      running: false,
+      pid: null,
+      startedAt: null,
+      lastExitCode: null,
+      lastError: null,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.status).toMatchObject({ desired: true, running: false });
+  });
+
+  it('error 객체가 있으면 ok=false + message 전달', () => {
+    const r = interpretRemoteSupportResponse(false, 500, {
+      error: { code: 'REMOTE_SUPPORT_FAILED', message: '터널 기동 실패' },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe('터널 기동 실패');
+  });
+
+  it('알 수 없는 실패 응답은 HTTP 상태로 폴백한다', () => {
+    const r = interpretRemoteSupportResponse(false, 502, {});
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('502');
+  });
+});
+
+describe('HttpPrintClient 원격 지원 (GET/POST /v1/admin/remote-support)', () => {
+  it('GET 은 same-origin 상대 경로로 조회하고 status 를 반환한다', async () => {
+    const fn = mockFetch({ ok: true, status: 200, json: { desired: true, running: true } });
+    const client = createPrintClient();
+    const result = await client.getRemoteSupport();
+    expect(result.ok).toBe(true);
+    expect(result.status?.running).toBe(true);
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/v1/admin/remote-support');
+    expect(init.method).toBe('GET');
+  });
+
+  it('POST 는 { enabled } 바디로 토글한다', async () => {
+    const fn = mockFetch({ ok: true, status: 200, json: { desired: true, running: false } });
+    const client = createPrintClient();
+    const result = await client.setRemoteSupport(true);
+    expect(result.ok).toBe(true);
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/v1/admin/remote-support');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ enabled: true });
+  });
+
+  it('네트워크 오류 시 ok=false(안내 문구) 로 분기한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      }) as unknown as typeof fetch,
+    );
+    const client = createPrintClient();
+    const result = await client.setRemoteSupport(true);
     expect(result.ok).toBe(false);
     expect(result.message).toBeTruthy();
   });

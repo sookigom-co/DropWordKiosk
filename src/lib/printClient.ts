@@ -72,6 +72,35 @@ export interface ExitKioskResult {
   raw?: unknown;
 }
 
+/**
+ * 원격 지원(SSH 역터널) 상태 객체(계약 v1: CTO 확정, SOO-1184/SOO-1186).
+ *   - `desired`  : 운영자가 켜기를 원한 상태(토글 값).
+ *   - `running`  : 실제 역터널 프로세스가 살아 있는지.
+ *   - `pid`      : 실행 중이면 프로세스 PID, 아니면 null.
+ *   - `startedAt`: 마지막 기동 시각(ISO 문자열) 또는 null.
+ *   - `lastExitCode`/`lastError`: 마지막 종료 코드/에러(디버깅용) 또는 null.
+ */
+export interface RemoteSupportStatus {
+  desired: boolean;
+  running: boolean;
+  pid: number | null;
+  startedAt: string | null;
+  lastExitCode: number | null;
+  lastError: string | null;
+}
+
+/**
+ * 원격 지원 조회/토글 결과.
+ *   - 성공: 200 + 상태 객체(GET·POST 동일 형태, idempotent)
+ *   - 실패: `error.code`/message 또는 HTTP 상태 폴백
+ */
+export interface RemoteSupportResult {
+  ok: boolean;
+  status?: RemoteSupportStatus;
+  message?: string;
+  raw?: unknown;
+}
+
 export interface PrintClient {
   readonly mock: boolean;
   getStatus(): Promise<StatusResult>;
@@ -80,6 +109,10 @@ export interface PrintClient {
   reboot(): Promise<RebootResult>;
   /** 관리자 키오스크 종료 요청(`POST /v1/admin/exit-kiosk`). */
   exitKiosk(): Promise<ExitKioskResult>;
+  /** 원격 지원 현재 상태 조회(`GET /v1/admin/remote-support`). */
+  getRemoteSupport(): Promise<RemoteSupportResult>;
+  /** 원격 지원 토글(`POST /v1/admin/remote-support {enabled}`). */
+  setRemoteSupport(enabled: boolean): Promise<RemoteSupportResult>;
 }
 
 // 통합 배포(에이전트가 kiosk dist/ 를 same-origin 으로 서빙)에서는 상대 경로로 호출한다.
@@ -90,6 +123,7 @@ const STATUS_TIMEOUT_MS = 4000;
 const PRINT_TIMEOUT_MS = 20000;
 const REBOOT_TIMEOUT_MS = 8000;
 const EXIT_KIOSK_TIMEOUT_MS = 8000;
+const REMOTE_SUPPORT_TIMEOUT_MS = 8000;
 
 /** 실패 상태(스태프 호출로 분기해야 하는 상태) 판별 */
 export function isFailureState(state: PrinterState): boolean {
@@ -300,6 +334,57 @@ export function interpretExitKioskResponse(
   return { ok: false, message: `키오스크 종료 요청 실패 (HTTP ${httpStatus})`, raw };
 }
 
+/** 응답 payload 에서 원격 지원 상태 객체를 방어적으로 정규화한다. */
+export function parseRemoteSupportStatus(raw: unknown): RemoteSupportStatus {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const numOrNull = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) ? v : null;
+  const strOrNull = (v: unknown): string | null =>
+    typeof v === 'string' && v.length > 0 ? v : null;
+  return {
+    desired: r.desired === true,
+    running: r.running === true,
+    pid: numOrNull(r.pid),
+    startedAt: strOrNull(r.startedAt),
+    lastExitCode: numOrNull(r.lastExitCode),
+    lastError: strOrNull(r.lastError),
+  };
+}
+
+/**
+ * `GET|POST /v1/admin/remote-support` 응답을 계약 v1 기준으로 해석한다.
+ *   - 성공: HTTP 2xx → 상태 객체 파싱(desired/running 등)
+ *   - 실패: `error.code`/message 존재 시 안내, 그 외 HTTP 상태로 폴백
+ */
+export function interpretRemoteSupportResponse(
+  httpOk: boolean,
+  httpStatus: number,
+  raw: unknown,
+): RemoteSupportResult {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+
+  const errObj =
+    r.error && typeof r.error === 'object' ? (r.error as Record<string, unknown>) : undefined;
+  if (errObj) {
+    return {
+      ok: false,
+      message: asString(errObj.message) ?? '원격 지원 요청에 실패했습니다.',
+      raw,
+    };
+  }
+
+  if (httpOk) {
+    return { ok: true, status: parseRemoteSupportStatus(raw), raw };
+  }
+  return { ok: false, message: `원격 지원 요청 실패 (HTTP ${httpStatus})`, raw };
+}
+
+/** 원격 지원 상태를 운영자용 한국어 라벨로 변환한다(desired/running 구분). */
+export function remoteSupportLabel(status: RemoteSupportStatus | null | undefined): string {
+  if (!status || !status.desired) return '꺼짐';
+  return status.running ? '연결됨' : '연결 시도 중';
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -392,6 +477,38 @@ class HttpPrintClient implements PrintClient {
       return { ok: false, message: '키오스크 종료 요청 시간 초과 또는 연결 실패' };
     }
   }
+
+  async getRemoteSupport(): Promise<RemoteSupportResult> {
+    try {
+      const res = await fetchWithTimeout(
+        `${this.base}/v1/admin/remote-support`,
+        { method: 'GET', headers: { Accept: 'application/json' } },
+        REMOTE_SUPPORT_TIMEOUT_MS,
+      );
+      const raw = await res.json().catch(() => ({}));
+      return interpretRemoteSupportResponse(res.ok, res.status, raw);
+    } catch {
+      return { ok: false, message: '원격 지원 상태 조회 시간 초과 또는 연결 실패' };
+    }
+  }
+
+  async setRemoteSupport(enabled: boolean): Promise<RemoteSupportResult> {
+    try {
+      const res = await fetchWithTimeout(
+        `${this.base}/v1/admin/remote-support`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ enabled }),
+        },
+        REMOTE_SUPPORT_TIMEOUT_MS,
+      );
+      const raw = await res.json().catch(() => ({}));
+      return interpretRemoteSupportResponse(res.ok, res.status, raw);
+    } catch {
+      return { ok: false, message: '원격 지원 요청 시간 초과 또는 연결 실패' };
+    }
+  }
 }
 
 /** 개발/데모용 목(mock) 클라이언트 — 실제 에이전트 없이 전체 흐름 검증 */
@@ -421,6 +538,31 @@ class MockPrintClient implements PrintClient {
   async exitKiosk(): Promise<ExitKioskResult> {
     await delay(600);
     return { ok: true, message: 'mock 키오스크 종료 요청(실제 호출 없음)' };
+  }
+
+  private rsDesired = false;
+
+  async getRemoteSupport(): Promise<RemoteSupportResult> {
+    await delay(200);
+    return { ok: true, status: this.mockRemoteSupportStatus() };
+  }
+
+  async setRemoteSupport(enabled: boolean): Promise<RemoteSupportResult> {
+    await delay(400);
+    this.rsDesired = enabled;
+    return { ok: true, status: this.mockRemoteSupportStatus() };
+  }
+
+  /** mock 상태: desired 를 그대로 running 으로 미러링(실제 SSH 호출 없음). */
+  private mockRemoteSupportStatus(): RemoteSupportStatus {
+    return {
+      desired: this.rsDesired,
+      running: this.rsDesired,
+      pid: this.rsDesired ? 4242 : null,
+      startedAt: this.rsDesired ? '2026-01-01T00:00:00Z' : null,
+      lastExitCode: null,
+      lastError: null,
+    };
   }
 }
 

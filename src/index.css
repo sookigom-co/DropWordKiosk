@@ -531,6 +531,10 @@ button {
   white-space: pre-line;
   margin: 0;
 }
+.admin-panel__lead--error {
+  color: var(--accent-pink);
+  font-weight: 700;
+}
 .admin-panel__actions {
   display: flex;
   flex-direction: column;
