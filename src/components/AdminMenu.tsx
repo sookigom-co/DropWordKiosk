@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import type { PrintClient, PrinterState } from '../lib/printClient';
-import { failureMessage } from '../lib/printClient';
+import type { PrintClient, PrinterState, RemoteSupportStatus } from '../lib/printClient';
+import { failureMessage, remoteSupportLabel } from '../lib/printClient';
 import { pickTestPrint, type TestPrintPick } from '../lib/testPrint';
 import { PrintingScreen } from '../screens/PrintingScreen';
 
@@ -21,6 +21,7 @@ type AdminMode =
   | 'exit-confirm'
   | 'exiting'
   | 'exit-notice'
+  | 'remote-support'
   | 'test-printing'
   | 'test-preview'
   | 'test-done'
@@ -44,8 +45,21 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [rebootBusy, setRebootBusy] = useState(false);
   const [exitBusy, setExitBusy] = useState(false);
+  const [rsStatus, setRsStatus] = useState<RemoteSupportStatus | null>(null);
+  const [rsBusy, setRsBusy] = useState(false);
+  const [rsError, setRsError] = useState<string | null>(null);
 
   const simulate = preview || client.mock;
+
+  // 프리뷰/mock 모드에서 실제 네트워크·SSH 호출 없이 쓰는 합성 상태.
+  const simulatedRsStatus = (desired: boolean): RemoteSupportStatus => ({
+    desired,
+    running: desired,
+    pid: desired ? 4242 : null,
+    startedAt: null,
+    lastExitCode: null,
+    lastError: null,
+  });
 
   const startTestPrint = useCallback(() => {
     setPick(pickTestPrint());
@@ -92,6 +106,46 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
     setMode('exit-notice');
   }, [client, simulate]);
 
+  // 원격 지원(SSH 역터널) 진입 — 상태를 조회해 표시. 실패해도 사용자 플로우엔 영향 없음.
+  const openRemoteSupport = useCallback(async () => {
+    setRsError(null);
+    setMode('remote-support');
+    if (simulate) {
+      // MOCK/PREVIEW: 실제 조회 없이 꺼짐 상태로 표시(요구사항 허용 조항).
+      setRsStatus(simulatedRsStatus(false));
+      return;
+    }
+    setRsBusy(true);
+    const result = await client.getRemoteSupport();
+    setRsBusy(false);
+    if (result.ok && result.status) {
+      setRsStatus(result.status);
+    } else {
+      setRsStatus(null);
+      setRsError(result.message ?? '원격 지원 상태를 불러오지 못했습니다.');
+    }
+  }, [client, simulate]);
+
+  // 원격 지원 토글 — 응답 상태로 UI 갱신. 실패 시 에러 표시 + 이전 상태로 복구.
+  const toggleRemoteSupport = useCallback(async () => {
+    const next = !(rsStatus?.desired ?? false);
+    setRsError(null);
+    if (simulate) {
+      setRsStatus(simulatedRsStatus(next));
+      return;
+    }
+    const prev = rsStatus;
+    setRsBusy(true);
+    const result = await client.setRemoteSupport(next);
+    setRsBusy(false);
+    if (result.ok && result.status) {
+      setRsStatus(result.status);
+    } else {
+      setRsStatus(prev); // 원상 복구
+      setRsError(result.message ?? '원격 지원 설정에 실패했습니다.');
+    }
+  }, [client, simulate, rsStatus]);
+
   // 테스트 프린트 결과 콜백 — 모두 관리자 오버레이 내부에 머문다(본 플로우 미변경).
   const handleTestSuccess = useCallback(() => setMode('test-done'), []);
   const handleTestError = useCallback((state: PrinterState, url: string | null) => {
@@ -132,6 +186,9 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
                 onClick={() => setMode('reboot-confirm')}
               >
                 재부팅
+              </button>
+              <button type="button" className="admin-btn" onClick={openRemoteSupport}>
+                원격 지원
               </button>
               <button
                 type="button"
@@ -240,6 +297,41 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
             </button>
           </>
         );
+
+      case 'remote-support': {
+        const on = rsStatus?.desired ?? false;
+        return (
+          <>
+            <h2 className="admin-panel__title">원격 지원</h2>
+            <p className="admin-panel__lead" aria-live="polite" aria-busy={rsBusy}>
+              {rsBusy ? '처리 중…' : `현재 상태: ${remoteSupportLabel(rsStatus)}`}
+            </p>
+            {rsError && (
+              <p className="admin-panel__lead admin-panel__lead--error" role="alert">
+                {rsError}
+              </p>
+            )}
+            <div className="admin-panel__actions">
+              <button
+                type="button"
+                className={on ? 'admin-btn admin-btn--danger' : 'admin-btn'}
+                onClick={toggleRemoteSupport}
+                disabled={rsBusy}
+                aria-pressed={on}
+              >
+                {on ? '원격 지원 끄기' : '원격 지원 켜기'}
+              </button>
+              <button
+                type="button"
+                className="admin-btn admin-btn--ghost"
+                onClick={() => setMode('menu')}
+              >
+                닫기
+              </button>
+            </div>
+          </>
+        );
+      }
 
       case 'test-printing':
         // 랜덤 조합 문장을 기존 인쇄 파이프라인(PrintingScreen)으로 그대로 태운다.
