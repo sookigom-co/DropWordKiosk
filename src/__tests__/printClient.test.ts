@@ -3,6 +3,7 @@ import {
   blobToBase64,
   createPrintClient,
   interpretPrintResponse,
+  interpretExitKioskResponse,
   interpretRebootResponse,
   mapErrorCode,
   resolveAgentBase,
@@ -202,6 +203,57 @@ describe('HttpPrintClient.reboot (POST /v1/admin/reboot)', () => {
     );
     const client = createPrintClient();
     const result = await client.reboot();
+    expect(result.ok).toBe(false);
+    expect(result.message).toBeTruthy();
+  });
+});
+
+describe('interpretExitKioskResponse (SOO-1182 키오스크 종료 계약)', () => {
+  it('성공 200 { result: "exiting" } → ok=true', () => {
+    expect(interpretExitKioskResponse(true, 200, { result: 'exiting' })).toMatchObject({ ok: true });
+  });
+
+  it('실패 500 { error: { code: EXIT_KIOSK_FAILED, message } } → ok=false + message 전달', () => {
+    const r = interpretExitKioskResponse(false, 500, {
+      error: { code: 'EXIT_KIOSK_FAILED', message: '종료 스크립트 실패' },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe('종료 스크립트 실패');
+  });
+
+  it('error 만 있고 message 가 없으면 기본 안내 문구를 준다', () => {
+    const r = interpretExitKioskResponse(false, 500, { error: { code: 'EXIT_KIOSK_FAILED' } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe('키오스크 종료 요청에 실패했습니다.');
+  });
+
+  it('알 수 없는 응답은 HTTP 상태로 폴백한다', () => {
+    const r = interpretExitKioskResponse(false, 502, {});
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('502');
+  });
+});
+
+describe('HttpPrintClient.exitKiosk (POST /v1/admin/exit-kiosk)', () => {
+  it('성공 시 same-origin 상대 경로로 POST 하고 ok=true 를 반환한다', async () => {
+    const fn = mockFetch({ ok: true, status: 200, json: { result: 'exiting' } });
+    const client = createPrintClient();
+    const result = await client.exitKiosk();
+    expect(result.ok).toBe(true);
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/v1/admin/exit-kiosk');
+    expect(init.method).toBe('POST');
+  });
+
+  it('네트워크 오류 시 ok=false(안내 문구) 로 분기한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      }) as unknown as typeof fetch,
+    );
+    const client = createPrintClient();
+    const result = await client.exitKiosk();
     expect(result.ok).toBe(false);
     expect(result.message).toBeTruthy();
   });
