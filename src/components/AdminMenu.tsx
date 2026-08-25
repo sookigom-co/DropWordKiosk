@@ -18,6 +18,9 @@ type AdminMode =
   | 'reboot-confirm'
   | 'rebooting'
   | 'reboot-notice'
+  | 'exit-confirm'
+  | 'exiting'
+  | 'exit-notice'
   | 'test-printing'
   | 'test-preview'
   | 'test-done'
@@ -30,6 +33,7 @@ type AdminMode =
  * - 이 오버레이는 키오스크 본 플로우 상태(useKiosk.step)를 건드리지 않는다.
  *   테스트 프린트는 자체 서브 플로우(PrintingScreen 재사용)로 처리하고, 닫으면 원래 화면이 그대로 남는다.
  * - 재부팅: 확인 다이얼로그 → `POST /v1/admin/reboot`. MOCK/PREVIEW 모드는 실제 호출 대신 안내만 표시.
+ * - 키오스크 종료: 확인 다이얼로그 → `POST /v1/admin/exit-kiosk`(SOO-1182). Chromium kiosk 모드를 종료한다.
  * - 테스트 프린트: 수식어/대상/행동 랜덤 조합 → 기존 협정문 인쇄 파이프라인 재사용.
  */
 export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
@@ -39,6 +43,7 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
   const [pick, setPick] = useState<TestPrintPick | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [rebootBusy, setRebootBusy] = useState(false);
+  const [exitBusy, setExitBusy] = useState(false);
 
   const simulate = preview || client.mock;
 
@@ -65,6 +70,26 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
       setNotice(result.message ?? '재부팅 요청에 실패했습니다.');
     }
     setMode('reboot-notice');
+  }, [client, simulate]);
+
+  const doExitKiosk = useCallback(async () => {
+    // MOCK/PREVIEW: 실제 종료를 호출하지 않고 안내만 표시.
+    if (simulate) {
+      setNotice('개발/프리뷰 모드입니다. 실제 키오스크 종료는 호출하지 않습니다.');
+      setMode('exit-notice');
+      return;
+    }
+    setExitBusy(true);
+    setMode('exiting');
+    const result = await client.exitKiosk();
+    setExitBusy(false);
+    if (result.ok) {
+      // 성공 시 곧 브라우저가 닫히므로 별도 후속 화면은 불요.
+      setNotice('키오스크를 종료합니다…');
+    } else {
+      setNotice(result.message ?? '키오스크 종료 요청에 실패했습니다.');
+    }
+    setMode('exit-notice');
   }, [client, simulate]);
 
   // 테스트 프린트 결과 콜백 — 모두 관리자 오버레이 내부에 머문다(본 플로우 미변경).
@@ -108,6 +133,13 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
               >
                 재부팅
               </button>
+              <button
+                type="button"
+                className="admin-btn"
+                onClick={() => setMode('exit-confirm')}
+              >
+                키오스크 종료
+              </button>
             </div>
             <button type="button" className="admin-btn admin-btn--ghost" onClick={onClose}>
               닫기
@@ -149,6 +181,53 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
         return (
           <>
             <h2 className="admin-panel__title">재부팅</h2>
+            <p className="admin-panel__lead" aria-live="polite">
+              {notice}
+            </p>
+            <button
+              type="button"
+              className="admin-btn admin-btn--ghost"
+              onClick={() => setMode('menu')}
+            >
+              확인
+            </button>
+          </>
+        );
+
+      case 'exit-confirm':
+        return (
+          <>
+            <h2 className="admin-panel__title">키오스크 종료</h2>
+            <p className="admin-panel__lead">정말 키오스크를 종료할까요?</p>
+            <div className="admin-panel__actions">
+              <button type="button" className="admin-btn admin-btn--danger" onClick={doExitKiosk}>
+                키오스크 종료
+              </button>
+              <button
+                type="button"
+                className="admin-btn admin-btn--ghost"
+                onClick={() => setMode('menu')}
+              >
+                취소
+              </button>
+            </div>
+          </>
+        );
+
+      case 'exiting':
+        return (
+          <>
+            <h2 className="admin-panel__title">키오스크 종료 요청 중…</h2>
+            <p className="admin-panel__lead" aria-live="polite" aria-busy={exitBusy}>
+              잠시만 기다려 주세요.
+            </p>
+          </>
+        );
+
+      case 'exit-notice':
+        return (
+          <>
+            <h2 className="admin-panel__title">키오스크 종료</h2>
             <p className="admin-panel__lead" aria-live="polite">
               {notice}
             </p>
