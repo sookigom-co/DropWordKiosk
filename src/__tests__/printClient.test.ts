@@ -4,6 +4,7 @@ import {
   createPrintClient,
   interpretPrintResponse,
   interpretExitKioskResponse,
+  interpretPowerOffResponse,
   interpretRebootResponse,
   interpretRemoteSupportResponse,
   parseRemoteSupportStatus,
@@ -257,6 +258,62 @@ describe('HttpPrintClient.exitKiosk (POST /v1/admin/exit-kiosk)', () => {
     );
     const client = createPrintClient();
     const result = await client.exitKiosk();
+    expect(result.ok).toBe(false);
+    expect(result.message).toBeTruthy();
+  });
+});
+
+describe('interpretPowerOffResponse (SOO-1196 시스템 종료 계약 v1)', () => {
+  it('성공 형태 { ok: true } 를 ok=true 로 해석한다', () => {
+    expect(interpretPowerOffResponse(true, 200, { ok: true })).toMatchObject({ ok: true });
+  });
+
+  it('하위 호환 성공 필드(result: "poweroff" / success)도 ok=true', () => {
+    expect(interpretPowerOffResponse(true, 200, { result: 'poweroff' })).toMatchObject({ ok: true });
+    expect(interpretPowerOffResponse(true, 200, { success: true })).toMatchObject({ ok: true });
+  });
+
+  it('error.message 가 있으면 그대로 안내한다', () => {
+    const r = interpretPowerOffResponse(false, 500, {
+      error: { code: 'POWEROFF_FAILED', message: '전원 종료에 실패했습니다.' },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe('전원 종료에 실패했습니다.');
+  });
+
+  it('error.code 만 있으면 기본 안내 문구로 대체한다', () => {
+    const r = interpretPowerOffResponse(false, 500, { error: { code: 'POWEROFF_FAILED' } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toBeTruthy();
+  });
+
+  it('알 수 없는 형태는 HTTP 상태로 폴백한다', () => {
+    const r = interpretPowerOffResponse(false, 502, {});
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('502');
+  });
+});
+
+describe('HttpPrintClient.powerOff (POST /v1/admin/poweroff)', () => {
+  it('성공 시 same-origin 상대 경로로 POST 하고 ok=true 를 반환한다', async () => {
+    const fn = mockFetch({ ok: true, status: 200, json: { ok: true } });
+    const client = createPrintClient();
+    const result = await client.powerOff();
+    expect(result.ok).toBe(true);
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/v1/admin/poweroff');
+    expect(init.method).toBe('POST');
+  });
+
+  it('네트워크 오류 시 ok=false(안내 문구) 로 분기한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      }) as unknown as typeof fetch,
+    );
+    const client = createPrintClient();
+    const result = await client.powerOff();
     expect(result.ok).toBe(false);
     expect(result.message).toBeTruthy();
   });
