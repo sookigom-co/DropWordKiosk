@@ -21,6 +21,9 @@ type AdminMode =
   | 'exit-confirm'
   | 'exiting'
   | 'exit-notice'
+  | 'poweroff-confirm'
+  | 'powering-off'
+  | 'poweroff-notice'
   | 'remote-support'
   | 'test-printing'
   | 'test-preview'
@@ -35,6 +38,7 @@ type AdminMode =
  *   테스트 프린트는 자체 서브 플로우(PrintingScreen 재사용)로 처리하고, 닫으면 원래 화면이 그대로 남는다.
  * - 재부팅: 확인 다이얼로그 → `POST /v1/admin/reboot`. MOCK/PREVIEW 모드는 실제 호출 대신 안내만 표시.
  * - 키오스크 종료: 확인 다이얼로그 → `POST /v1/admin/exit-kiosk`(SOO-1182). Chromium kiosk 모드를 종료한다.
+ * - 시스템 종료: 확인 다이얼로그 → `POST /v1/admin/poweroff`(SOO-1196). 기기 전원을 끈다.
  * - 테스트 프린트: 수식어/대상/행동 랜덤 조합 → 기존 협정문 인쇄 파이프라인 재사용.
  */
 export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
@@ -45,6 +49,7 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [rebootBusy, setRebootBusy] = useState(false);
   const [exitBusy, setExitBusy] = useState(false);
+  const [poweroffBusy, setPoweroffBusy] = useState(false);
   const [rsStatus, setRsStatus] = useState<RemoteSupportStatus | null>(null);
   const [rsBusy, setRsBusy] = useState(false);
   const [rsError, setRsError] = useState<string | null>(null);
@@ -104,6 +109,26 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
       setNotice(result.message ?? '키오스크 종료 요청에 실패했습니다.');
     }
     setMode('exit-notice');
+  }, [client, simulate]);
+
+  const doPowerOff = useCallback(async () => {
+    // MOCK/PREVIEW: 실제 종료를 호출하지 않고 안내만 표시.
+    if (simulate) {
+      setNotice('개발/프리뷰 모드입니다. 실제 시스템 종료는 호출하지 않습니다.');
+      setMode('poweroff-notice');
+      return;
+    }
+    setPoweroffBusy(true);
+    setMode('powering-off');
+    const result = await client.powerOff();
+    setPoweroffBusy(false);
+    if (result.ok) {
+      // 성공 시 곧 전원이 꺼지므로 별도 후속 화면은 불요.
+      setNotice('시스템을 종료합니다…');
+    } else {
+      setNotice(result.message ?? '시스템 종료 요청에 실패했습니다.');
+    }
+    setMode('poweroff-notice');
   }, [client, simulate]);
 
   // 원격 지원(SSH 역터널) 진입 — 상태를 조회해 표시. 실패해도 사용자 플로우엔 영향 없음.
@@ -197,6 +222,13 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
               >
                 키오스크 종료
               </button>
+              <button
+                type="button"
+                className="admin-btn"
+                onClick={() => setMode('poweroff-confirm')}
+              >
+                시스템 종료
+              </button>
             </div>
             <button type="button" className="admin-btn admin-btn--ghost" onClick={onClose}>
               닫기
@@ -285,6 +317,53 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
         return (
           <>
             <h2 className="admin-panel__title">키오스크 종료</h2>
+            <p className="admin-panel__lead" aria-live="polite">
+              {notice}
+            </p>
+            <button
+              type="button"
+              className="admin-btn admin-btn--ghost"
+              onClick={() => setMode('menu')}
+            >
+              확인
+            </button>
+          </>
+        );
+
+      case 'poweroff-confirm':
+        return (
+          <>
+            <h2 className="admin-panel__title">시스템 종료</h2>
+            <p className="admin-panel__lead">정말 시스템(기기 전원)을 종료할까요?</p>
+            <div className="admin-panel__actions">
+              <button type="button" className="admin-btn admin-btn--danger" onClick={doPowerOff}>
+                시스템 종료
+              </button>
+              <button
+                type="button"
+                className="admin-btn admin-btn--ghost"
+                onClick={() => setMode('menu')}
+              >
+                취소
+              </button>
+            </div>
+          </>
+        );
+
+      case 'powering-off':
+        return (
+          <>
+            <h2 className="admin-panel__title">시스템 종료 요청 중…</h2>
+            <p className="admin-panel__lead" aria-live="polite" aria-busy={poweroffBusy}>
+              잠시만 기다려 주세요.
+            </p>
+          </>
+        );
+
+      case 'poweroff-notice':
+        return (
+          <>
+            <h2 className="admin-panel__title">시스템 종료</h2>
             <p className="admin-panel__lead" aria-live="polite">
               {notice}
             </p>

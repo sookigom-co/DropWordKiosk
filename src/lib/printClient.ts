@@ -73,6 +73,17 @@ export interface ExitKioskResult {
 }
 
 /**
+ * 관리자 시스템 종료 결과(계약 v1: CTO 확정, SOO-1196).
+ *   - 성공 200 `{ "ok": true }`
+ *   - 실패 500 `{ "error": { "code": "POWEROFF_FAILED", "message"? } }`
+ */
+export interface PowerOffResult {
+  ok: boolean;
+  message?: string;
+  raw?: unknown;
+}
+
+/**
  * 원격 지원(SSH 역터널) 상태 객체(계약 v1: CTO 확정, SOO-1184/SOO-1186).
  *   - `desired`  : 운영자가 켜기를 원한 상태(토글 값).
  *   - `running`  : 실제 역터널 프로세스가 살아 있는지.
@@ -109,6 +120,8 @@ export interface PrintClient {
   reboot(): Promise<RebootResult>;
   /** 관리자 키오스크 종료 요청(`POST /v1/admin/exit-kiosk`). */
   exitKiosk(): Promise<ExitKioskResult>;
+  /** 관리자 시스템 종료 요청(`POST /v1/admin/poweroff`). */
+  powerOff(): Promise<PowerOffResult>;
   /** 원격 지원 현재 상태 조회(`GET /v1/admin/remote-support`). */
   getRemoteSupport(): Promise<RemoteSupportResult>;
   /** 원격 지원 토글(`POST /v1/admin/remote-support {enabled}`). */
@@ -123,6 +136,7 @@ const STATUS_TIMEOUT_MS = 4000;
 const PRINT_TIMEOUT_MS = 20000;
 const REBOOT_TIMEOUT_MS = 8000;
 const EXIT_KIOSK_TIMEOUT_MS = 8000;
+const POWEROFF_TIMEOUT_MS = 8000;
 const REMOTE_SUPPORT_TIMEOUT_MS = 8000;
 
 /** 실패 상태(스태프 호출로 분기해야 하는 상태) 판별 */
@@ -334,6 +348,38 @@ export function interpretExitKioskResponse(
   return { ok: false, message: `키오스크 종료 요청 실패 (HTTP ${httpStatus})`, raw };
 }
 
+/**
+ * `POST /v1/admin/poweroff` 응답을 계약 v1(SOO-1196) 기준으로 해석한다.
+ *   - 성공: `ok === true` → ok(계약 v1 성공 형태 `200 { "ok": true }`)
+ *   - 실패: `error.code`(POWEROFF_FAILED 등) 존재 시 message 를 안내
+ *   - 하위 호환: `result === "poweroff"`/`success` 필드도 성공으로 허용
+ *   - 그 외: HTTP 상태로 폴백
+ */
+export function interpretPowerOffResponse(
+  httpOk: boolean,
+  httpStatus: number,
+  raw: unknown,
+): PowerOffResult {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+
+  // 계약 v1 실패 형태: error.code 기준(HTTP 상태 무관)
+  const errObj =
+    r.error && typeof r.error === 'object' ? (r.error as Record<string, unknown>) : undefined;
+  if (errObj) {
+    return {
+      ok: false,
+      message: asString(errObj.message) ?? '시스템 종료 요청에 실패했습니다.',
+      raw,
+    };
+  }
+
+  // 계약 v1 성공 형태 `{ "ok": true }`(+ 하위 호환 필드)
+  if (httpOk && (r.ok === true || r.success === true || String(r.result ?? '').toLowerCase() === 'poweroff')) {
+    return { ok: true, raw };
+  }
+  return { ok: false, message: `시스템 종료 요청 실패 (HTTP ${httpStatus})`, raw };
+}
+
 /** 응답 payload 에서 원격 지원 상태 객체를 방어적으로 정규화한다. */
 export function parseRemoteSupportStatus(raw: unknown): RemoteSupportStatus {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
@@ -478,6 +524,24 @@ class HttpPrintClient implements PrintClient {
     }
   }
 
+  async powerOff(): Promise<PowerOffResult> {
+    try {
+      const res = await fetchWithTimeout(
+        `${this.base}/v1/admin/poweroff`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: '{}',
+        },
+        POWEROFF_TIMEOUT_MS,
+      );
+      const raw = await res.json().catch(() => ({}));
+      return interpretPowerOffResponse(res.ok, res.status, raw);
+    } catch {
+      return { ok: false, message: '시스템 종료 요청 시간 초과 또는 연결 실패' };
+    }
+  }
+
   async getRemoteSupport(): Promise<RemoteSupportResult> {
     try {
       const res = await fetchWithTimeout(
@@ -538,6 +602,11 @@ class MockPrintClient implements PrintClient {
   async exitKiosk(): Promise<ExitKioskResult> {
     await delay(600);
     return { ok: true, message: 'mock 키오스크 종료 요청(실제 호출 없음)' };
+  }
+
+  async powerOff(): Promise<PowerOffResult> {
+    await delay(600);
+    return { ok: true, message: 'mock 시스템 종료 요청(실제 호출 없음)' };
   }
 
   private rsDesired = false;
