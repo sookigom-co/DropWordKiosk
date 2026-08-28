@@ -5,6 +5,8 @@ import {
   interpretPrintResponse,
   interpretExitKioskResponse,
   interpretPowerOffResponse,
+  interpretOnlineResponse,
+  interpretUpdateResponse,
   interpretRebootResponse,
   interpretRemoteSupportResponse,
   parseRemoteSupportStatus,
@@ -316,6 +318,117 @@ describe('HttpPrintClient.powerOff (POST /v1/admin/poweroff)', () => {
     const result = await client.powerOff();
     expect(result.ok).toBe(false);
     expect(result.message).toBeTruthy();
+  });
+});
+
+describe('interpretOnlineResponse (SOO-1202 온라인 상태 계약 v1)', () => {
+  it('online: true 를 online=true 로 해석한다', () => {
+    expect(interpretOnlineResponse(true, 200, { online: true })).toMatchObject({
+      ok: true,
+      online: true,
+    });
+  });
+
+  it('online: false 를 online=false 로 해석한다', () => {
+    expect(interpretOnlineResponse(true, 200, { online: false })).toMatchObject({
+      ok: true,
+      online: false,
+    });
+  });
+
+  it('불리언이 아닌 online 값은 false 로 안전 처리한다', () => {
+    expect(interpretOnlineResponse(true, 200, { online: 'yes' })).toMatchObject({
+      ok: true,
+      online: false,
+    });
+    expect(interpretOnlineResponse(true, 200, {})).toMatchObject({ ok: true, online: false });
+  });
+
+  it('HTTP 오류 시 ok=false·online=false 로 폴백한다', () => {
+    const r = interpretOnlineResponse(false, 500, {});
+    expect(r.ok).toBe(false);
+    expect(r.online).toBe(false);
+    expect(r.message).toContain('500');
+  });
+});
+
+describe('interpretUpdateResponse (SOO-1202 자동 업데이트 계약 v1)', () => {
+  it('202 { ok: true } 를 성공으로 해석한다', () => {
+    expect(interpretUpdateResponse(true, 202, { ok: true })).toMatchObject({ ok: true });
+  });
+
+  it('하위 호환 성공 필드(result: "updating" / success)도 ok=true', () => {
+    expect(interpretUpdateResponse(true, 200, { result: 'updating' })).toMatchObject({ ok: true });
+    expect(interpretUpdateResponse(true, 200, { success: true })).toMatchObject({ ok: true });
+  });
+
+  it('503 { detail: "offline" } 을 offline=true 로 분기한다', () => {
+    const r = interpretUpdateResponse(false, 503, { detail: 'offline' });
+    expect(r.ok).toBe(false);
+    expect(r.offline).toBe(true);
+    expect(r.message).toBeTruthy();
+  });
+
+  it('500 스크립트 오류는 detail 을 안내한다', () => {
+    const r = interpretUpdateResponse(false, 500, { detail: 'update.sh exit 1' });
+    expect(r.ok).toBe(false);
+    expect(r.offline).toBeUndefined();
+    expect(r.message).toBe('update.sh exit 1');
+  });
+
+  it('error.message 형태도 안내한다', () => {
+    const r = interpretUpdateResponse(false, 500, { error: { message: '스크립트 실패' } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe('스크립트 실패');
+  });
+
+  it('알 수 없는 실패는 HTTP 상태로 폴백한다', () => {
+    const r = interpretUpdateResponse(false, 502, {});
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('502');
+  });
+});
+
+describe('HttpPrintClient.getOnline / update (SOO-1202)', () => {
+  it('getOnline: same-origin 상대 경로로 GET 하고 online 을 반환한다', async () => {
+    const fn = mockFetch({ ok: true, status: 200, json: { online: true } });
+    const client = createPrintClient();
+    const result = await client.getOnline();
+    expect(result).toMatchObject({ ok: true, online: true });
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/v1/admin/online');
+    expect(init.method).toBe('GET');
+  });
+
+  it('getOnline: 네트워크 오류 시 ok=false·online=false 로 분기한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      }) as unknown as typeof fetch,
+    );
+    const client = createPrintClient();
+    const result = await client.getOnline();
+    expect(result.ok).toBe(false);
+    expect(result.online).toBe(false);
+  });
+
+  it('update: same-origin 상대 경로로 POST 하고 성공을 반환한다', async () => {
+    const fn = mockFetch({ ok: true, status: 202, json: { ok: true } });
+    const client = createPrintClient();
+    const result = await client.update();
+    expect(result.ok).toBe(true);
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/v1/admin/update');
+    expect(init.method).toBe('POST');
+  });
+
+  it('update: 503 응답은 offline=true 로 분기한다', async () => {
+    mockFetch({ ok: false, status: 503, json: { detail: 'offline' } });
+    const client = createPrintClient();
+    const result = await client.update();
+    expect(result.ok).toBe(false);
+    expect(result.offline).toBe(true);
   });
 });
 

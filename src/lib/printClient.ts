@@ -84,6 +84,34 @@ export interface PowerOffResult {
 }
 
 /**
+ * 온라인(인터넷 연결) 상태 조회 결과(계약 v1: SOO-1202/SOO-1200).
+ *   - 성공 200 `{ "online": true|false }`
+ *   - `ok`     : 호출(네트워크/HTTP) 성공 여부. 실패 시 online 은 안전하게 false.
+ *   - `online` : 인쇄 에이전트가 판정한 실제 인터넷 연결 여부(LAN-only 오탐 방지).
+ *   - `navigator.onLine` 은 사용하지 않는다 — 판정 기준은 이 엔드포인트다.
+ */
+export interface OnlineResult {
+  ok: boolean;
+  online: boolean;
+  message?: string;
+  raw?: unknown;
+}
+
+/**
+ * 자동 업데이트 실행 결과(계약 v1: SOO-1202/SOO-1200).
+ *   - 성공 202 `{ "ok": true }`
+ *   - 오프라인 503 `{ "detail": "offline" }` → `offline: true`
+ *   - 스크립트 문제 500 `{ "detail"|"error.message" }`
+ */
+export interface UpdateResult {
+  ok: boolean;
+  /** 503(offline) 로 거부된 경우 true — 호출부가 "인터넷 연결 필요"로 분기 */
+  offline?: boolean;
+  message?: string;
+  raw?: unknown;
+}
+
+/**
  * 원격 지원(SSH 역터널) 상태 객체(계약 v1: CTO 확정, SOO-1184/SOO-1186).
  *   - `desired`  : 운영자가 켜기를 원한 상태(토글 값).
  *   - `running`  : 실제 역터널 프로세스가 살아 있는지.
@@ -122,6 +150,10 @@ export interface PrintClient {
   exitKiosk(): Promise<ExitKioskResult>;
   /** 관리자 시스템 종료 요청(`POST /v1/admin/poweroff`). */
   powerOff(): Promise<PowerOffResult>;
+  /** 온라인(인터넷 연결) 상태 조회(`GET /v1/admin/online`). */
+  getOnline(): Promise<OnlineResult>;
+  /** 자동 업데이트 실행(`POST /v1/admin/update`). */
+  update(): Promise<UpdateResult>;
   /** 원격 지원 현재 상태 조회(`GET /v1/admin/remote-support`). */
   getRemoteSupport(): Promise<RemoteSupportResult>;
   /** 원격 지원 토글(`POST /v1/admin/remote-support {enabled}`). */
@@ -138,6 +170,8 @@ const REBOOT_TIMEOUT_MS = 8000;
 const EXIT_KIOSK_TIMEOUT_MS = 8000;
 const POWEROFF_TIMEOUT_MS = 8000;
 const REMOTE_SUPPORT_TIMEOUT_MS = 8000;
+const ONLINE_TIMEOUT_MS = 4000;
+const UPDATE_TIMEOUT_MS = 8000;
 
 /** 실패 상태(스태프 호출로 분기해야 하는 상태) 판별 */
 export function isFailureState(state: PrinterState): boolean {
@@ -380,6 +414,60 @@ export function interpretPowerOffResponse(
   return { ok: false, message: `시스템 종료 요청 실패 (HTTP ${httpStatus})`, raw };
 }
 
+/**
+ * `GET /v1/admin/online` 응답을 계약 v1(SOO-1202) 기준으로 해석한다.
+ *   - 성공: HTTP 2xx → `online` 불리언(그 외 값은 false 로 안전 처리)
+ *   - 실패: HTTP 오류/파싱 실패 → ok=false, online=false(버튼 비활성 유도)
+ */
+export function interpretOnlineResponse(
+  httpOk: boolean,
+  httpStatus: number,
+  raw: unknown,
+): OnlineResult {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  if (httpOk) {
+    return { ok: true, online: r.online === true, raw };
+  }
+  return { ok: false, online: false, message: `HTTP ${httpStatus}`, raw };
+}
+
+/**
+ * `POST /v1/admin/update` 응답을 계약 v1(SOO-1202) 기준으로 해석한다.
+ *   - 성공: 202 `{ "ok": true }` → ok
+ *   - 오프라인: 503 `{ "detail": "offline" }` → offline=true(인터넷 연결 필요 안내)
+ *   - 스크립트 문제: 500 등 → error.message/detail 을 안내
+ *   - 하위 호환: `result === "updating"`/`success` 필드도 성공으로 허용
+ */
+export function interpretUpdateResponse(
+  httpOk: boolean,
+  httpStatus: number,
+  raw: unknown,
+): UpdateResult {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+
+  // 오프라인(503) — 계약 v1 실패 형태 `{ "detail": "offline" }`
+  if (httpStatus === 503) {
+    return {
+      ok: false,
+      offline: true,
+      message: asString(r.detail) ?? '인터넷 연결이 필요합니다.',
+      raw,
+    };
+  }
+
+  // 계약 v1 성공 형태 `{ "ok": true }`(+ 하위 호환 필드)
+  if (httpOk && (r.ok === true || r.success === true || String(r.result ?? '').toLowerCase() === 'updating')) {
+    return { ok: true, raw };
+  }
+
+  // 실패: FastAPI `detail` 또는 `error.message`
+  const errObj =
+    r.error && typeof r.error === 'object' ? (r.error as Record<string, unknown>) : undefined;
+  const message =
+    asString(r.detail) ?? asString(errObj?.message) ?? `업데이트 요청 실패 (HTTP ${httpStatus})`;
+  return { ok: false, message, raw };
+}
+
 /** 응답 payload 에서 원격 지원 상태 객체를 방어적으로 정규화한다. */
 export function parseRemoteSupportStatus(raw: unknown): RemoteSupportStatus {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
@@ -542,6 +630,39 @@ class HttpPrintClient implements PrintClient {
     }
   }
 
+  async getOnline(): Promise<OnlineResult> {
+    try {
+      const res = await fetchWithTimeout(
+        `${this.base}/v1/admin/online`,
+        { method: 'GET', headers: { Accept: 'application/json' } },
+        ONLINE_TIMEOUT_MS,
+      );
+      const raw = await res.json().catch(() => ({}));
+      return interpretOnlineResponse(res.ok, res.status, raw);
+    } catch {
+      // 네트워크 오류/타임아웃 → 연결 불가로 간주(버튼 비활성)
+      return { ok: false, online: false, message: '온라인 상태 조회 시간 초과 또는 연결 실패' };
+    }
+  }
+
+  async update(): Promise<UpdateResult> {
+    try {
+      const res = await fetchWithTimeout(
+        `${this.base}/v1/admin/update`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: '{}',
+        },
+        UPDATE_TIMEOUT_MS,
+      );
+      const raw = await res.json().catch(() => ({}));
+      return interpretUpdateResponse(res.ok, res.status, raw);
+    } catch {
+      return { ok: false, message: '업데이트 요청 시간 초과 또는 연결 실패' };
+    }
+  }
+
   async getRemoteSupport(): Promise<RemoteSupportResult> {
     try {
       const res = await fetchWithTimeout(
@@ -607,6 +728,17 @@ class MockPrintClient implements PrintClient {
   async powerOff(): Promise<PowerOffResult> {
     await delay(600);
     return { ok: true, message: 'mock 시스템 종료 요청(실제 호출 없음)' };
+  }
+
+  async getOnline(): Promise<OnlineResult> {
+    await delay(200);
+    // mock/데모에서는 항상 온라인으로 간주(업데이트 버튼 활성 확인용).
+    return { ok: true, online: true };
+  }
+
+  async update(): Promise<UpdateResult> {
+    await delay(600);
+    return { ok: true, message: 'mock 업데이트 요청(실제 호출 없음)' };
   }
 
   private rsDesired = false;
