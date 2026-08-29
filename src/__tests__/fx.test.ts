@@ -53,6 +53,8 @@ import {
   spawnBetweenBodies,
   swayForce,
   topSpawnPoint,
+  topDropSpawnPoint,
+  topDropFreeSpawn,
   upwardPushTargets,
   type Circle,
   type FxSettings,
@@ -1423,5 +1425,81 @@ describe('approach (SOO-1112 후속 — 부드러운 밀어올림 글라이드)'
   it('비유한 입력에 안전(현재·목표 NaN 폴백)', () => {
     expect(approach(NaN, 50, 16, 95)).toBe(50);
     expect(approach(50, NaN, 16, 95)).toBe(50);
+  });
+});
+
+describe('topDropSpawnPoint (SOO-1208 — 상단 낙하 스폰)', () => {
+  const W = 800;
+  const R = 40;
+
+  it('중심 y 는 항상 화면 위(−r) — 상단 밖에서 태어나 떨어진다', () => {
+    expect(topDropSpawnPoint(W, R, 0).y).toBe(-R);
+    expect(topDropSpawnPoint(W, R, 0.5).y).toBe(-R);
+    expect(topDropSpawnPoint(W, R, 1).y).toBe(-R);
+  });
+
+  it('rndX 0→1 이 좌→우로 매핑되고 x 는 항상 반지름·마진 안', () => {
+    const margin = 40;
+    const inset = Math.max(R, margin);
+    const left = topDropSpawnPoint(W, R, 0, margin).x;
+    const right = topDropSpawnPoint(W, R, 1, margin).x;
+    expect(left).toBeCloseTo(inset);
+    expect(right).toBeCloseTo(W - inset);
+    expect(right).toBeGreaterThan(left);
+    // 중간값은 [inset, W-inset] 안.
+    const mid = topDropSpawnPoint(W, R, 0.5, margin).x;
+    expect(mid).toBeGreaterThanOrEqual(inset);
+    expect(mid).toBeLessThanOrEqual(W - inset);
+  });
+
+  it('반지름이 마진보다 크면 반지름을 인셋으로 써 큰 원도 경계 안에서 태어난다', () => {
+    const big = 120;
+    const p0 = topDropSpawnPoint(W, big, 0, 40);
+    const p1 = topDropSpawnPoint(W, big, 1, 40);
+    expect(p0.x).toBeCloseTo(big);
+    expect(p1.x).toBeCloseTo(W - big);
+  });
+
+  it('비유한 입력에 안전(x 는 경계 안, y 는 −r)', () => {
+    const p = topDropSpawnPoint(NaN, R, NaN);
+    expect(Number.isFinite(p.x)).toBe(true);
+    expect(p.y).toBe(-R);
+  });
+});
+
+describe('topDropFreeSpawn (SOO-1208 — 상단선 비겹침 낙하 스폰)', () => {
+  const W = 800;
+  const R = 40;
+
+  it('기존 버블이 없으면 첫 후보 자리를 그대로 반환(y=−r)', () => {
+    const spot = topDropFreeSpawn(W, R, [], [0.5], 4);
+    expect(spot).not.toBeNull();
+    expect(spot!.y).toBe(-R);
+  });
+
+  it('상단 근처에서 낙하 중인 버블과 겹치는 후보는 건너뛰고 빈 x 를 고른다', () => {
+    // 왼쪽 상단선(y=−R 근처)에 버블 하나 → rnds 첫 후보(좌측)는 겹쳐 배제, 둘째(우측) 채택.
+    const airborne: Circle[] = [{ x: Math.max(R, 40), y: -R, r: R }];
+    const spot = topDropFreeSpawn(W, R, airborne, [0, 1], 4);
+    expect(spot).not.toBeNull();
+    expect(spot!.x).toBeCloseTo(W - Math.max(R, 40));
+  });
+
+  it('모든 후보가 상단 낙하 버블과 겹치면 null(스폰 보류 — 관통 금지)', () => {
+    // 좌·우 양끝 상단선을 모두 막아, 후보(좌·우)가 전부 겹치게 한다.
+    const inset = Math.max(R, 40);
+    const airborne: Circle[] = [
+      { x: inset, y: -R, r: R },
+      { x: W - inset, y: -R, r: R },
+    ];
+    const spot = topDropFreeSpawn(W, R, airborne, [0, 1], 4);
+    expect(spot).toBeNull();
+  });
+
+  it('바닥에 이미 쌓인(y 가 큰) 버블은 상단 후보(y=−r)와 멀어 스폰을 막지 않는다', () => {
+    const settled: Circle[] = [{ x: Math.max(R, 40), y: 500, r: R }];
+    const spot = topDropFreeSpawn(W, R, settled, [0], 4);
+    expect(spot).not.toBeNull();
+    expect(spot!.x).toBeCloseTo(Math.max(R, 40));
   });
 });
