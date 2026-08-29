@@ -88,19 +88,21 @@ export interface Step1PhysicsApi {
 }
 
 /**
- * Step1 물리 시뮬레이션 구동 훅(SOO-1048 → SOO-1057 → SOO-1112 → SOO-1208 낙하·적재 전환).
+ * Step1 물리 시뮬레이션 구동 훅(SOO-1048 → SOO-1057 → SOO-1112 → SOO-1208 낙하·적재 전환
+ * → SOO-1208 후속 글자·보라 원 혼합 낙하).
  *
- * matter-js 로 단어 원 중력 낙하·쌓임을 시뮬레이션하고, 낙하 완료 후에는 보라색 버블이
- * **화면 상단 밖에서 목표 크기 그대로 태어나 중력으로 떨어져** 바닥·기존 버블 위에 쌓인다
- * (부모 SOO-1207 보더 요청: "제자리 생성·성장"을 "위에서 떨어져 쌓이는" 방식으로 교체, Step3
- * 낙하·적재 관례). 버블은 상단선에서 **기존 버블과 겹치지 않는 랜덤 x**(`topDropFreeSpawn`)로만
- * 태어나 스폰 순간 관통을 원천 차단하고, 낙하·적재 중 겹침 해소는 동적 강체 충돌(restitution 0,
- * positionIterations 10)이 맡는다. 원형·보라색·랜덤(크기·x)은 유지하되 제자리 스폰·성장·부력·
- * 밀어올림 로직은 제거했다.
+ * matter-js 로 단어 원과 보라색 버블이 **화면 상단 밖에서 함께 떨어져** 바닥·서로 위에 섞여
+ * 쌓이는 것을 시뮬레이션한다(부모 SOO-1207 보더 요청: "제자리 생성·성장"을 "위에서 떨어져
+ * 쌓이는" 방식으로 교체 + 후속 "글자·보라 원을 다 섞어서 떨어뜨려 달라"). 단어 원은 시작과 함께
+ * 스태거로 낙하하고, 보라 버블은 **단어 정착을 기다리지 않고 동시에** 상단에서 목표 크기 그대로
+ * 태어나 떨어진다 → 둘이 서로 섞여 쌓인다. 버블은 상단선에서 **기존 버블·낙하 중인 단어 원과
+ * 겹치지 않는 랜덤 x**(`topDropFreeSpawn`)로만 태어나 스폰 순간 관통을 원천 차단하고, 낙하·적재
+ * 중 겹침 해소는 동적 강체 충돌(restitution 0, positionIterations 10)이 맡는다. 원형·보라색·
+ * 랜덤(크기·x)은 유지하되 제자리 스폰·성장·부력·밀어올림 로직은 제거했다.
  *
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
- * 채움 상한(65% FILL_STOP_RATIO 또는 MAX_PURPLE)에 도달해 스폰이 멈추고 낙하 버블이 모두
- * 정착하면 그때를 채움 완료로 보고, 약 1초(FREEZE_DELAY_MS) 뒤 전체 바디를 정적 고정
+ * 채움 상한(65% FILL_STOP_RATIO 또는 MAX_PURPLE)에 도달해 스폰이 멈추고 단어 원·보라 버블이
+ * 모두 정착하면 그때를 채움 완료로 보고, 약 1초(FREEZE_DELAY_MS) 뒤 전체 바디를 정적 고정
  * (freezeBody)하고 rAF 루프를 멈춰 잔여 접촉 해소 떨림(지터)을 제거한다(SOO-1114).
  */
 export function useStep1Physics(
@@ -218,15 +220,22 @@ export function useStep1Physics(
     const trySpawnPurple = (): boolean => {
       const s = settingsRef.current;
       const r = randomTargetPx(bubblePx, s.maxSizeRatio, Math.random()) / 2;
-      // 상단 근처에서 낙하 중인 것만 실질 배제(바닥에 쌓인 버블은 y=−r 후보와 멀어 무영향).
-      const bubbleCircles: Circle[] = purpleSims.map((p) => ({
+      // 상단 근처에서 낙하 중인 것만 실질 배제(바닥에 쌓인 것은 y=−r 후보와 멀어 무영향).
+      // 보라 버블뿐 아니라 **함께 낙하 중인 단어 원**도 후보 배제에 넣어(SOO-1208 혼합 낙하)
+      // 상단선에서 단어 위로 보라 원이 겹쳐 태어나는 스폰 순간 관통을 막는다.
+      const obstacles: Circle[] = purpleSims.map((p) => ({
         x: p.body.position.x,
         y: p.body.position.y,
         r: p.r,
       }));
+      for (const ws of wordSims) {
+        if (ws.released) {
+          obstacles.push({ x: ws.body.position.x, y: ws.body.position.y, r: radius });
+        }
+      }
       const rnds: number[] = [];
       for (let k = 0; k < SPAWN_TRIES; k++) rnds.push(Math.random());
-      const spot = topDropFreeSpawn(width, r, bubbleCircles, rnds, SPAWN_PAD);
+      const spot = topDropFreeSpawn(width, r, obstacles, rnds, SPAWN_PAD);
       if (!spot) return false; // 상단선 붐빔 → 이번 스폰 건너뜀(영속 유지).
       const body = makeBubbleBody(spot.x, spot.y, r);
       // 아래 방향으로 살짝 속도 시드(좌우 편향 없음) — Step3 낙하 관례와 동일한 안정적 진입.
@@ -277,9 +286,13 @@ export function useStep1Physics(
         }
       }
 
-      // 정착 판정: 모든 단어가 방출되고 전 속도가 임계 이하로 SETTLE_HOLD_MS 유지.
+      const allReleased = wordSims.every((s) => s.released);
+
+      // 정착 판정(단어 원): 모든 단어가 방출되고 전 속도가 임계 이하로 SETTLE_HOLD_MS 유지.
+      // 단어 top-클램프(화면 위 낙하 진입 허용 여부, 아래 참조)에만 쓴다. 보라 버블이 함께
+      // 떨어지며 단어를 계속 건드리므로 실제로는 낙하가 모두 잦아드는 후반에야 settled 가
+      // 된다(무해 — 그전엔 중력으로 아래로만 향해 상단 이탈 위험이 없다).
       if (!settled) {
-        const allReleased = wordSims.every((s) => s.released);
         const speeds = allReleased ? wordSims.map((s) => s.body.speed) : [];
         if (allReleased && bodiesSettled(speeds, SETTLE_SPEED)) {
           if (settleSince < 0) settleSince = nowMs;
@@ -289,10 +302,11 @@ export function useStep1Physics(
         }
       }
 
-      // 보라 버블 낙하 스폰 — 단어가 정착한 뒤에만, 채움 상한 전까지 상단에서 한 개씩 떨어뜨린다.
-      // spawnIntervalMs 간격으로 상단선에 비겹침 자리를 찾아 스폰(붐비면 다음 프레임 재시도).
+      // 보라 버블 낙하 스폰(SOO-1208 후속 — 글자·보라 원 혼합 낙하, 부모 SOO-1207 보더 요청
+      // "다 섞어서"). 단어 정착을 기다리지 않고 단어 낙하와 **동시에** 상단에서 떨어뜨려 둘이
+      // 섞여 쌓이게 한다. spawnIntervalMs 간격으로 상단선 비겹침 자리를 찾아 스폰(붐비면 다음
+      // 프레임 재시도), 채움 상한(65% FILL_STOP_RATIO)·MAX_PURPLE 전까지.
       if (
-        settled &&
         !spawnStopped &&
         nowMs - lastSpawn >= settingsRef.current.spawnIntervalMs &&
         purpleSims.length < MAX_PURPLE
@@ -304,14 +318,18 @@ export function useStep1Physics(
           lastSpawn = nowMs;
         }
       }
-      if (settled && purpleSims.length >= MAX_PURPLE) spawnStopped = true;
+      if (purpleSims.length >= MAX_PURPLE) spawnStopped = true;
 
-      // 채움 완료 감지(SOO-1114, SOO-1208 재해석): 스폰이 멈추고(채움 상한 도달) 낙하 버블이 모두
-      // 임계 속도 이하로 SETTLE_HOLD_MS 유지되면 그때를 채움 완료로 래치한다. 이 시점부터
-      // FREEZE_DELAY_MS 뒤 전체 고정. 버블이 없으면(엣지) 곧바로 완료로 본다.
-      if (settled && spawnStopped && fillCompleteAt < 0) {
-        const speeds = purpleSims.map((p) => p.body.speed);
-        if (purpleSims.length === 0 || bodiesSettled(speeds, SETTLE_SPEED)) {
+      // 채움 완료 감지(SOO-1114, SOO-1208 혼합 낙하 재해석): 모든 단어가 방출되고 스폰이
+      // 멈춘(채움 상한 도달) 뒤, **단어 원 + 보라 버블 전체**가 임계 속도 이하로 SETTLE_HOLD_MS
+      // 유지되면 그때를 채움 완료로 래치한다. 이 시점부터 FREEZE_DELAY_MS 뒤 전체 고정.
+      // 바디가 없으면(엣지) 곧바로 완료로 본다.
+      if (allReleased && spawnStopped && fillCompleteAt < 0) {
+        const speeds = [
+          ...wordSims.filter((s) => s.released).map((s) => s.body.speed),
+          ...purpleSims.map((p) => p.body.speed),
+        ];
+        if (speeds.length === 0 || bodiesSettled(speeds, SETTLE_SPEED)) {
           if (bubbleSettleSince < 0) bubbleSettleSince = nowMs;
           else if (nowMs - bubbleSettleSince >= SETTLE_HOLD_MS) fillCompleteAt = nowMs;
         } else {
