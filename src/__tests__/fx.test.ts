@@ -437,17 +437,17 @@ describe('bodiesSettled (SOO-1049 정착 판정)', () => {
   });
 });
 
-describe('freezeDue (SOO-1114 채움 완료 후 고정, SOO-1175 로 유예 1초)', () => {
-  it('기본 유예는 1000ms', () => {
-    expect(FREEZE_DELAY_MS).toBe(1000);
+describe('freezeDue (SOO-1114 채움 완료 후 고정, SOO-1208 후속으로 유예 2초)', () => {
+  it('기본 유예는 2000ms', () => {
+    expect(FREEZE_DELAY_MS).toBe(2000);
   });
   it('채움 미완(null)이면 항상 false', () => {
     expect(freezeDue(null, 999999, FREEZE_DELAY_MS)).toBe(false);
   });
   it('유예 경과 전에는 false, 정확히 경과 시점부터 true', () => {
     const t0 = 5000;
-    expect(freezeDue(t0, t0 + 999, FREEZE_DELAY_MS)).toBe(false);
-    expect(freezeDue(t0, t0 + 1000, FREEZE_DELAY_MS)).toBe(true);
+    expect(freezeDue(t0, t0 + 1999, FREEZE_DELAY_MS)).toBe(false);
+    expect(freezeDue(t0, t0 + 2000, FREEZE_DELAY_MS)).toBe(true);
     expect(freezeDue(t0, t0 + 5000, FREEZE_DELAY_MS)).toBe(true);
   });
   it('비유한 입력은 보수적으로 false', () => {
@@ -522,10 +522,10 @@ describe('areaFilled (SOO-1049 후속 4/5 채움 중단)', () => {
   it('면적이 임계 미만이면 false', () => {
     expect(areaFilled([{ x: 50, y: 50, r: 10 }], 100, 100, 0.5)).toBe(false);
   });
-  it('FILL_STOP_RATIO 는 0.65(SOO-1175 — 보더 요청으로 0.7→0.65, 원 패킹 이론 상한 아래)', () => {
-    // 원은 겹치지 않고 면적의 ~90%(육각 패킹 이론값)를 넘길 수 없다. 0.65 는 그 상한 아래이면서
-    // 70% 보다 조금 성기게 채운다. 스폰은 firstFreeSpawn 비중첩 자리에서만 이뤄져 겹침은 없다.
-    expect(FILL_STOP_RATIO).toBe(0.65);
+  it('FILL_STOP_RATIO 는 0.75(SOO-1208 후속 — 보더 요청 "75%까지 올려", 원 패킹 이론 상한 아래)', () => {
+    // 원은 겹치지 않고 면적의 ~90%(육각 패킹 이론값)를 넘길 수 없다. 0.75 는 그 상한 아래이면서
+    // 이전(0.65)보다 더 빽빽하게 채운다. 스폰은 firstFreeSpawn 비중첩 자리에서만 이뤄져 겹침은 없다.
+    expect(FILL_STOP_RATIO).toBe(0.75);
   });
 });
 
