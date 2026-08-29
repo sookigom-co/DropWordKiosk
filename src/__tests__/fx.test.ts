@@ -396,6 +396,50 @@ describe('separateCircles (SOO-1208 후속 — 절대 비겹침 위치 완화)',
     expect(separateCircles([], 4, 0)).toEqual([]);
     expect(separateCircles([{ x: 3, y: 4, r: 5 }], 4, 0)).toEqual([{ x: 3, y: 4 }]);
   });
+
+  // useStep1Physics 의 reconcile 루프(분리↔경계 클램프 왕복)와 동일한 합성을 순수 함수로
+  // 재현해, 경계 근처에서도 세 종류 쌍(단어↔단어·단어↔보라·보라↔보라)이 모두 비겹침으로
+  // 수렴함을 보장한다(SOO-1208 후속, 보더 "전부 겹치지 않아야"). 분리만 하면 경계 밖으로 밀리고
+  // 클램프만 하면 이웃과 새 겹침이 생기므로, 둘을 번갈아 적용해야 양쪽 제약이 함께 만족된다.
+  it('경계 근처 단어·보라 혼합 원도 분리↔클램프 왕복으로 비겹침·경계내로 수렴', () => {
+    const SIZE = 200;
+    const PAD = 1;
+    // 좌상단 코너에 단어 원(r=14)·보라 원(r=10)을 심하게 겹쳐 배치(경계 밖 좌표 포함).
+    const circles = [
+      { x: 6, y: 6, r: 14 },
+      { x: 10, y: 9, r: 10 },
+      { x: 4, y: 14, r: 14 },
+      { x: 12, y: 12, r: 10 },
+      { x: 8, y: 4, r: 14 },
+      { x: 2, y: 2, r: 10 },
+    ];
+    // 시작 상태는 실제로 겹쳐 있어야 테스트가 유의미하다.
+    expect(anyOverlap(circles)).toBe(true);
+    // 훅과 동일한 합성(분리 후 각 중심을 [r, SIZE−r] 로 클램프)을 반복한다. 훅은 이 왕복을
+    // 60fps 로 매 프레임 누적 적용하므로(+ 물리 분산), 단발 수렴을 확인하려면 충분한 라운드를
+    // 돌린다 — 검증 대상은 "합성이 결국 비겹침·경계내로 수렴하는가"이지 특정 라운드 수가 아니다.
+    for (let round = 0; round < 60; round++) {
+      const resolved = separateCircles(circles, 6, PAD);
+      let moved = false;
+      for (let i = 0; i < circles.length; i++) {
+        if (resolved[i].x !== circles[i].x || resolved[i].y !== circles[i].y) moved = true;
+        circles[i] = { x: resolved[i].x, y: resolved[i].y, r: circles[i].r };
+      }
+      for (let i = 0; i < circles.length; i++) {
+        const c = clampToStage(circles[i].x, circles[i].y, circles[i].r, SIZE, SIZE);
+        circles[i] = { x: c.x, y: c.y, r: circles[i].r };
+      }
+      if (!moved) break;
+    }
+    // 수렴 후: 어떤 쌍도 겹치지 않고(부동소수 잔차 허용), 모든 원이 경계 안에 있다.
+    expect(anyOverlap(circles, -0.01)).toBe(false);
+    for (const c of circles) {
+      expect(c.x).toBeGreaterThanOrEqual(c.r - 1e-6);
+      expect(c.x).toBeLessThanOrEqual(SIZE - c.r + 1e-6);
+      expect(c.y).toBeGreaterThanOrEqual(c.r - 1e-6);
+      expect(c.y).toBeLessThanOrEqual(SIZE - c.r + 1e-6);
+    }
+  });
 });
 
 describe('maxGrowRadius (SOO-1049 성장 정지)', () => {
