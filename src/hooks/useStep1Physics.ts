@@ -66,6 +66,16 @@ const SEPARATE_ITERS = 6;
  * 서브픽셀 맞닿음이 겹쳐 보이지 않도록 한다(보더 "절대 겹치지 않게").
  */
 const SEPARATE_PAD = 1;
+/**
+ * 비겹침 ↔ 경계 클램프 왕복 정정(reconciliation) 라운드 수(SOO-1208 후속).
+ *
+ * `separateCircles`(겹침 해소)는 경계 근처 원을 밖으로 밀 수 있고, 경계 클램프는 밀려난 원을
+ * 다시 안으로 되돌리며 이웃과 새 겹침을 만들 수 있다 — 이 둘을 한 번씩만 적용하면 클램프가
+ * 마지막이라 겹침이 남아 고정(freeze)되는 프레임에 그대로 박제된다. 두 제약을 번갈아 여러 번
+ * 적용하면 채움 70%(면적 여유 존재)에서 양쪽 모두 만족하는 배치로 수렴한다. 마지막은 분리 →
+ * 경계 클램프 순서로 끝나므로, 수렴 후 클램프는 무보정(no-op)이 되어 비겹침이 보존된다.
+ */
+const RECONCILE_ROUNDS = 4;
 
 interface WordSim {
   id: string;
@@ -281,36 +291,9 @@ export function useStep1Physics(
 
       stepEngine(world, dt);
 
-      // 겹침 절대 금지(SOO-1208 후속, 보더 "절대 겹치지 않게"): 물리 강체 충돌만으로는 잔여
-      // 관통(matter slop·적재 압력)이 남아 화면상 미세 겹침이 보인다. 매 틱 물리 스텝 뒤,
-      // 현재 활성(비정적) 원 — 낙하한 단어 원 + 보라 버블 — 을 모아 기하학적 위치 완화로
-      // 겹침을 밀어낸 뒤, 그 변위를 `Body.translate` 로 적용한다(position·positionPrev 를 함께
-      // 이동해 속도 보존 → 낙하 거동 유지). 이후 아래 stage 클램프가 경계를 재보장한다.
-      const activeBodies: import('matter-js').Body[] = [];
-      const activeCircles: Circle[] = [];
-      for (const p of purpleSims) {
-        if (p.body.isStatic) continue;
-        activeBodies.push(p.body);
-        activeCircles.push({ x: p.body.position.x, y: p.body.position.y, r: p.r });
-      }
-      for (const sim of wordSims) {
-        if (!sim.released || sim.body.isStatic) continue;
-        activeBodies.push(sim.body);
-        activeCircles.push({ x: sim.body.position.x, y: sim.body.position.y, r: radius });
-      }
-      if (activeCircles.length > 1) {
-        const resolved = separateCircles(activeCircles, SEPARATE_ITERS, SEPARATE_PAD);
-        for (let i = 0; i < activeBodies.length; i++) {
-          const dx = resolved[i].x - activeBodies[i].position.x;
-          const dy = resolved[i].y - activeBodies[i].position.y;
-          if (dx !== 0 || dy !== 0) {
-            Matter.Body.translate(activeBodies[i], { x: dx, y: dy });
-          }
-        }
-      }
-
       // 화면 이탈 절대 금지(SOO-1088 최후 방어선): 매 틱 stepEngine 이후 모든 바디 중심을
-      // 스테이지 [r, size−r] 안으로 강제 클램프한다.
+      // 스테이지 [r, size−r] 안으로 강제 클램프한다. 진입(entered)·정착(settled) 상태 전이도
+      // 여기서 확정한다(아래 reconcile 이 참조).
       // - 보라 버블: 상단 밖(y<0)에서 떨어져 들어오므로 필드 안으로 진입(entered)하기 전에는
       //   상단을 클램프하지 않는다(낙하 진입 비방해). 진입 후에는 상·하·좌·우 전부 클램프.
       // - 단어 원: 위(y<0)에서 떨어져 들어오므로 정착 전에는 상단을 클램프하지 않는다.
@@ -324,6 +307,55 @@ export function useStep1Physics(
           // 문자 회전 ±45° 제한(SOO-1092). 단어 원은 원형이라 회전이 충돌에 영향 없음 →
           // 순수 시각적 클램프(거동 회귀 없음). 보라 버블은 문자가 없어 제외.
           clampBodyAngle(sim.body);
+        }
+      }
+
+      // 겹침 절대 금지(SOO-1208 후속, 보더 "단어원↔단어원·단어원↔보라원·보라원↔보라원 전부
+      // 겹치지 않아야"): 물리 강체 충돌만으로는 잔여 관통(matter slop·적재 압력)이 남아 화면상
+      // 미세 겹침이 보인다. 현재 활성(비정적) 원 — 낙하한 단어 원 + 보라 버블 — 을 **한 배열에
+      // 모아** `separateCircles` 로 밀어내므로 세 종류의 쌍(단어↔단어·단어↔보라·보라↔보라)이
+      // 모두 동일하게 해소된다. 변위는 `Body.translate`(position·positionPrev 동시 이동 → 속도
+      // 보존, 낙하 거동 유지)로 반영한다.
+      //
+      // 분리는 경계 근처 원을 밖으로 밀 수 있고 경계 클램프는 되돌리며 새 겹침을 만들 수 있어,
+      // 두 제약을 번갈아 RECONCILE_ROUNDS 회 적용해 수렴시킨다(마지막은 분리→클램프 순 →
+      // 수렴 시 클램프 no-op → 비겹침 보존). 매 프레임 끝을 비겹침 상태로 두므로, 이후 고정
+      // (freeze)되는 프레임의 좌표도 비겹침이 그대로 박제된다.
+      const active: {
+        body: import('matter-js').Body;
+        r: number;
+        clampTop: boolean;
+      }[] = [];
+      for (const p of purpleSims) {
+        if (p.body.isStatic) continue;
+        active.push({ body: p.body, r: p.r, clampTop: p.entered });
+      }
+      for (const sim of wordSims) {
+        if (!sim.released || sim.body.isStatic) continue;
+        active.push({ body: sim.body, r: radius, clampTop: settled });
+      }
+      if (active.length > 1) {
+        for (let round = 0; round < RECONCILE_ROUNDS; round++) {
+          const circles: Circle[] = active.map((a) => ({
+            x: a.body.position.x,
+            y: a.body.position.y,
+            r: a.r,
+          }));
+          const resolved = separateCircles(circles, SEPARATE_ITERS, SEPARATE_PAD);
+          let moved = false;
+          for (let i = 0; i < active.length; i++) {
+            const dx = resolved[i].x - active[i].body.position.x;
+            const dy = resolved[i].y - active[i].body.position.y;
+            if (dx !== 0 || dy !== 0) {
+              Matter.Body.translate(active[i].body, { x: dx, y: dy });
+              moved = true;
+            }
+          }
+          // 분리로 경계를 넘었을 수 있으니 다시 안으로 되돌린다(SOO-1088 우선).
+          for (const a of active) {
+            clampBodyToStage(a.body, width, height, a.clampTop);
+          }
+          if (!moved) break; // 이미 비겹침 → 조기 종료(클램프도 무보정).
         }
       }
 
