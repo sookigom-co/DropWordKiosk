@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { PrintClient, PrinterState, RemoteSupportStatus } from '../lib/printClient';
 import { failureMessage, remoteSupportLabel } from '../lib/printClient';
 import { pickTestPrint, type TestPrintPick } from '../lib/testPrint';
@@ -24,6 +24,9 @@ type AdminMode =
   | 'poweroff-confirm'
   | 'powering-off'
   | 'poweroff-notice'
+  | 'update-confirm'
+  | 'updating'
+  | 'update-notice'
   | 'remote-support'
   | 'test-printing'
   | 'test-preview'
@@ -39,6 +42,8 @@ type AdminMode =
  * - 재부팅: 확인 다이얼로그 → `POST /v1/admin/reboot`. MOCK/PREVIEW 모드는 실제 호출 대신 안내만 표시.
  * - 키오스크 종료: 확인 다이얼로그 → `POST /v1/admin/exit-kiosk`(SOO-1182). Chromium kiosk 모드를 종료한다.
  * - 시스템 종료: 확인 다이얼로그 → `POST /v1/admin/poweroff`(SOO-1196). 기기 전원을 끈다.
+ * - 자동 업데이트: 인터넷 연결 시에만 활성 → 확인 다이얼로그 → `POST /v1/admin/update`(SOO-1202).
+ *   온라인 판정은 `GET /v1/admin/online`(모달 열림 동안 5초 주기 재확인) 기준이며 `navigator.onLine` 은 쓰지 않는다.
  * - 테스트 프린트: 수식어/대상/행동 랜덤 조합 → 기존 협정문 인쇄 파이프라인 재사용.
  */
 export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
@@ -50,6 +55,9 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
   const [rebootBusy, setRebootBusy] = useState(false);
   const [exitBusy, setExitBusy] = useState(false);
   const [poweroffBusy, setPoweroffBusy] = useState(false);
+  // 온라인 상태: null=확인 중(초기), true=연결됨, false=끊김/조회 실패. true 일 때만 업데이트 버튼 활성.
+  const [online, setOnline] = useState<boolean | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
   const [rsStatus, setRsStatus] = useState<RemoteSupportStatus | null>(null);
   const [rsBusy, setRsBusy] = useState(false);
   const [rsError, setRsError] = useState<string | null>(null);
@@ -129,6 +137,50 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
       setNotice(result.message ?? '시스템 종료 요청에 실패했습니다.');
     }
     setMode('poweroff-notice');
+  }, [client, simulate]);
+
+  // 온라인 상태 폴링 — 관리자 모달이 열려 있는 동안(=이 컴포넌트 마운트 동안) 5초 주기로 재확인.
+  // navigator.onLine 단독 판정 금지: 반드시 PrintAgent 의 online 엔드포인트를 기준으로 한다.
+  useEffect(() => {
+    if (simulate) {
+      // MOCK/PREVIEW: 실제 조회 없이 온라인으로 간주(버튼 활성 확인용).
+      setOnline(true);
+      return;
+    }
+    let cancelled = false;
+    const check = async () => {
+      const result = await client.getOnline();
+      if (!cancelled) setOnline(result.ok && result.online);
+    };
+    void check();
+    const timer = setInterval(() => void check(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [client, simulate]);
+
+  const doUpdate = useCallback(async () => {
+    // MOCK/PREVIEW: 실제 업데이트를 호출하지 않고 안내만 표시.
+    if (simulate) {
+      setNotice('개발/프리뷰 모드입니다. 실제 자동 업데이트는 호출하지 않습니다.');
+      setMode('update-notice');
+      return;
+    }
+    setUpdateBusy(true);
+    setMode('updating');
+    const result = await client.update();
+    setUpdateBusy(false);
+    if (result.ok) {
+      setNotice('업데이트를 시작했습니다. 잠시 후 자동으로 반영됩니다.');
+    } else if (result.offline) {
+      // 확인 다이얼로그 사이에 연결이 끊긴 경우 — 버튼 비활성 상태로 되돌린다.
+      setOnline(false);
+      setNotice('인터넷 연결이 필요합니다. 연결 상태를 확인해 주세요.');
+    } else {
+      setNotice(result.message ?? '업데이트 요청에 실패했습니다.');
+    }
+    setMode('update-notice');
   }, [client, simulate]);
 
   // 원격 지원(SSH 역터널) 진입 — 상태를 조회해 표시. 실패해도 사용자 플로우엔 영향 없음.
@@ -229,6 +281,20 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
               >
                 시스템 종료
               </button>
+              <button
+                type="button"
+                className="admin-btn"
+                onClick={() => setMode('update-confirm')}
+                disabled={online !== true}
+                aria-describedby={online !== true ? 'admin-update-hint' : undefined}
+              >
+                자동 업데이트
+              </button>
+              {online !== true && (
+                <p id="admin-update-hint" className="admin-panel__hint" role="note">
+                  {online === null ? '연결 상태 확인 중…' : '인터넷 연결 필요'}
+                </p>
+              )}
             </div>
             <button type="button" className="admin-btn admin-btn--ghost" onClick={onClose}>
               닫기
@@ -364,6 +430,55 @@ export function AdminMenu({ client, preview, onClose }: AdminMenuProps) {
         return (
           <>
             <h2 className="admin-panel__title">시스템 종료</h2>
+            <p className="admin-panel__lead" aria-live="polite">
+              {notice}
+            </p>
+            <button
+              type="button"
+              className="admin-btn admin-btn--ghost"
+              onClick={() => setMode('menu')}
+            >
+              확인
+            </button>
+          </>
+        );
+
+      case 'update-confirm':
+        return (
+          <>
+            <h2 className="admin-panel__title">자동 업데이트</h2>
+            <p className="admin-panel__lead">
+              최신 버전으로 업데이트할까요?{'\n'}인터넷 연결이 유지된 상태에서 진행됩니다.
+            </p>
+            <div className="admin-panel__actions">
+              <button type="button" className="admin-btn admin-btn--danger" onClick={doUpdate}>
+                업데이트 시작
+              </button>
+              <button
+                type="button"
+                className="admin-btn admin-btn--ghost"
+                onClick={() => setMode('menu')}
+              >
+                취소
+              </button>
+            </div>
+          </>
+        );
+
+      case 'updating':
+        return (
+          <>
+            <h2 className="admin-panel__title">업데이트 요청 중…</h2>
+            <p className="admin-panel__lead" aria-live="polite" aria-busy={updateBusy}>
+              잠시만 기다려 주세요.
+            </p>
+          </>
+        );
+
+      case 'update-notice':
+        return (
+          <>
+            <h2 className="admin-panel__title">자동 업데이트</h2>
             <p className="admin-panel__lead" aria-live="polite">
               {notice}
             </p>

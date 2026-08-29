@@ -25,6 +25,8 @@ function fakeClient(overrides: Partial<PrintClient> = {}): PrintClient {
     reboot: vi.fn(async () => ({ ok: true })),
     exitKiosk: vi.fn(async () => ({ ok: true })),
     powerOff: vi.fn(async () => ({ ok: true })),
+    getOnline: vi.fn(async () => ({ ok: true, online: true })),
+    update: vi.fn(async () => ({ ok: true })),
     getRemoteSupport: vi.fn(async () => ({ ok: true })),
     setRemoteSupport: vi.fn(async () => ({ ok: true })),
     ...overrides,
