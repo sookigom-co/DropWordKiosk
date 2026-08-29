@@ -263,7 +263,9 @@ button {
   border: 2px solid var(--accent-purple);
   background: #fff;
   color: var(--ink);
-  font-size: clamp(18px, 3vw, 26px);
+  /* SOO-1208 후속(보더 요청): 단어 원 크기는 그대로 두고 안의 글자 폰트만 38.7px 고정.
+     원 지름은 위 width/height(clamp)로 결정되며 물리 반지름은 offsetWidth 기반이라 폰트 변경의 영향을 받지 않는다. */
+  font-size: 38.7px;
   font-weight: 700;
   display: flex;
   align-items: center;
