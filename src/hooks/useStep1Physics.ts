@@ -101,7 +101,7 @@ export interface Step1PhysicsApi {
  * 랜덤(크기·x)은 유지하되 제자리 스폰·성장·부력·밀어올림 로직은 제거했다.
  *
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
- * 채움 상한(75% FILL_STOP_RATIO 또는 MAX_PURPLE)에 도달해 스폰이 멈추고 단어 원·보라 버블이
+ * 채움 상한(70% FILL_STOP_RATIO 또는 MAX_PURPLE)에 도달해 스폰이 멈추고 단어 원·보라 버블이
  * 모두 정착하면(= 좌표 안정) 그때를 채움 완료로 보고, 약 2초(FREEZE_DELAY_MS) 뒤 전체 바디를 정적 고정
  * (freezeBody)하고 rAF 루프를 멈춰 잔여 접촉 해소 떨림(지터)을 제거한다(SOO-1114).
  */
@@ -194,7 +194,7 @@ export function useStep1Physics(
     /**
      * 현재 점유 영역(기존 보라 버블 + 낙하 완료된 단어 원)을 원 목록으로 수집.
      * 버블은 목표 크기 그대로 태어나므로(성장 없음, SOO-1208) 실측 반지름을 그대로 쓴다.
-     * 면적 채움 판정(스폰 중단, FILL_STOP_RATIO=0.75)에 쓴다.
+     * 면적 채움 판정(스폰 중단, FILL_STOP_RATIO=0.70)에 쓴다.
      */
     const collectFootprint = (): Circle[] => {
       const occupied: Circle[] = [];
@@ -305,7 +305,7 @@ export function useStep1Physics(
       // 보라 버블 낙하 스폰(SOO-1208 후속 — 글자·보라 원 혼합 낙하, 부모 SOO-1207 보더 요청
       // "다 섞어서"). 단어 정착을 기다리지 않고 단어 낙하와 **동시에** 상단에서 떨어뜨려 둘이
       // 섞여 쌓이게 한다. spawnIntervalMs 간격으로 상단선 비겹침 자리를 찾아 스폰(붐비면 다음
-      // 프레임 재시도), 채움 상한(75% FILL_STOP_RATIO)·MAX_PURPLE 전까지.
+      // 프레임 재시도), 채움 상한(70% FILL_STOP_RATIO)·MAX_PURPLE 전까지.
       if (
         !spawnStopped &&
         nowMs - lastSpawn >= settingsRef.current.spawnIntervalMs &&
