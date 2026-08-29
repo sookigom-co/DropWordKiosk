@@ -30,6 +30,7 @@ import {
   burstCount,
   circlesArea,
   circlesOverlap,
+  separateCircles,
   clampFx,
   clampRange,
   easeOutCubic,
@@ -328,6 +329,72 @@ describe('circlesOverlap (SOO-1049 비중첩)', () => {
   });
   it('pad 여유를 주면 접점도 겹침으로 본다', () => {
     expect(circlesOverlap(0, 0, 6, 12, 0, 6, 2)).toBe(true);
+  });
+});
+
+describe('separateCircles (SOO-1208 후속 — 절대 비겹침 위치 완화)', () => {
+  const anyOverlap = (cs: readonly { x: number; y: number; r: number }[], pad = 0): boolean => {
+    for (let i = 0; i < cs.length; i++) {
+      for (let j = i + 1; j < cs.length; j++) {
+        if (circlesOverlap(cs[i].x, cs[i].y, cs[i].r, cs[j].x, cs[j].y, cs[j].r, pad)) return true;
+      }
+    }
+    return false;
+  };
+
+  it('겹친 두 원을 서로 반대로 밀어 (반지름 합)만큼 벌린다', () => {
+    // 중심 거리 6, 반지름 합 12 → 6 만큼 침투. 각 원이 절반씩 반대로 밀림.
+    const out = separateCircles([{ x: 0, y: 0, r: 6 }, { x: 6, y: 0, r: 6 }], 8, 0);
+    const dist = Math.abs(out[1].x - out[0].x);
+    expect(dist).toBeCloseTo(12, 5);
+    expect(out[0].x).toBeCloseTo(-3, 5);
+    expect(out[1].x).toBeCloseTo(9, 5);
+  });
+
+  it('pad 여유를 두면 그만큼 더 벌린다', () => {
+    const out = separateCircles([{ x: 0, y: 0, r: 6 }, { x: 6, y: 0, r: 6 }], 8, 2);
+    expect(Math.abs(out[1].x - out[0].x)).toBeCloseTo(14, 5);
+  });
+
+  it('이미 떨어진 원은 움직이지 않는다', () => {
+    const input = [{ x: 0, y: 0, r: 6 }, { x: 100, y: 0, r: 6 }];
+    const out = separateCircles(input, 6, 0);
+    expect(out[0]).toEqual({ x: 0, y: 0 });
+    expect(out[1]).toEqual({ x: 100, y: 0 });
+  });
+
+  it('중심이 완전히 겹친 쌍은 +x 축으로 결정적으로 벌린다(난수 없이 재현)', () => {
+    const a = separateCircles([{ x: 5, y: 5, r: 4 }, { x: 5, y: 5, r: 4 }], 6, 0);
+    const b = separateCircles([{ x: 5, y: 5, r: 4 }, { x: 5, y: 5, r: 4 }], 6, 0);
+    expect(a).toEqual(b); // 결정적
+    expect(Math.abs(a[1].x - a[0].x)).toBeCloseTo(8, 5);
+    expect(a[0].y).toBeCloseTo(5, 5);
+    expect(a[1].y).toBeCloseTo(5, 5);
+  });
+
+  it('여러 원이 뭉친 무더기도 반복 후 어떤 쌍도 겹치지 않는다', () => {
+    const clustered = [
+      { x: 50, y: 50, r: 10 },
+      { x: 55, y: 52, r: 10 },
+      { x: 48, y: 58, r: 10 },
+      { x: 60, y: 55, r: 10 },
+      { x: 52, y: 45, r: 10 },
+    ];
+    const out = separateCircles(clustered, 40, 0).map((p, i) => ({ ...p, r: clustered[i].r }));
+    // 부동소수 잔차(≪0.001px) 허용 — pad −0.01 로 그 이상 겹침만 검사.
+    expect(anyOverlap(out, -0.01)).toBe(false);
+  });
+
+  it('입력 배열을 변형하지 않는다(순수 함수)', () => {
+    const input = [{ x: 0, y: 0, r: 6 }, { x: 6, y: 0, r: 6 }];
+    const snapshot = JSON.parse(JSON.stringify(input));
+    separateCircles(input, 4, 0);
+    expect(input).toEqual(snapshot);
+  });
+
+  it('원 1개 이하면 그대로 반환', () => {
+    expect(separateCircles([], 4, 0)).toEqual([]);
+    expect(separateCircles([{ x: 3, y: 4, r: 5 }], 4, 0)).toEqual([{ x: 3, y: 4 }]);
   });
 });
 

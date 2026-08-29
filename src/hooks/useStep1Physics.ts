@@ -21,6 +21,7 @@ import {
   purpleColor,
   randomTargetPx,
   referenceBubblePx,
+  separateCircles,
   topDropFreeSpawn,
   type Circle,
   type FxSettings,
@@ -55,6 +56,16 @@ const SETTLE_SPEED = 0.4;
 const SETTLE_HOLD_MS = 450;
 /** 보라 버블 렌더 투명도(고정) — 성장이 사라져 알파 애니메이션도 없앴다(SOO-1208). */
 const PURPLE_ALPHA = 0.55;
+/**
+ * 겹침 해소 완화(relaxation) 반복 횟수(SOO-1208 후속, 보더 "절대 겹치지 않게").
+ * 매 프레임 물리 스텝 뒤 `separateCircles` 를 이만큼 반복해 잔여 관통을 밀어낸다.
+ */
+const SEPARATE_ITERS = 6;
+/**
+ * 겹침 해소 시 원 사이에 유지할 최소 여유(px) — 0 이면 맞닿음까지 허용된다. 1px 를 둬
+ * 서브픽셀 맞닿음이 겹쳐 보이지 않도록 한다(보더 "절대 겹치지 않게").
+ */
+const SEPARATE_PAD = 1;
 
 interface WordSim {
   id: string;
@@ -96,8 +107,10 @@ export interface Step1PhysicsApi {
  * 쌓이는" 방식으로 교체 + 후속 "글자·보라 원을 다 섞어서 떨어뜨려 달라"). 단어 원은 시작과 함께
  * 스태거로 낙하하고, 보라 버블은 **단어 정착을 기다리지 않고 동시에** 상단에서 목표 크기 그대로
  * 태어나 떨어진다 → 둘이 서로 섞여 쌓인다. 버블은 상단선에서 **기존 버블·낙하 중인 단어 원과
- * 겹치지 않는 랜덤 x**(`topDropFreeSpawn`)로만 태어나 스폰 순간 관통을 원천 차단하고, 낙하·적재
- * 중 겹침 해소는 동적 강체 충돌(restitution 0, positionIterations 10)이 맡는다. 원형·보라색·
+ * 겹치지 않는 랜덤 x**(`topDropFreeSpawn`)로만 태어나 스폰 순간 관통을 원천 차단한다. 낙하·적재
+ * 중 겹침 해소는 동적 강체 충돌(restitution 0, positionIterations 10)에 더해, 매 프레임 물리 스텝
+ * 뒤 기하학적 위치 완화(`separateCircles`)로 잔여 관통(matter slop·적재 압력)까지 밀어내 **렌더
+ * 좌표가 어떤 시점에도 겹치지 않도록 보장**한다(보더 "절대 겹치지 않게"). 원형·보라색·
  * 랜덤(크기·x)은 유지하되 제자리 스폰·성장·부력·밀어올림 로직은 제거했다.
  *
  * 매 프레임 DOM transform 을 직접 갱신한다(React 리렌더 최소화 → 라즈베리파이 부하↓).
@@ -267,6 +280,34 @@ export function useStep1Physics(
       }
 
       stepEngine(world, dt);
+
+      // 겹침 절대 금지(SOO-1208 후속, 보더 "절대 겹치지 않게"): 물리 강체 충돌만으로는 잔여
+      // 관통(matter slop·적재 압력)이 남아 화면상 미세 겹침이 보인다. 매 틱 물리 스텝 뒤,
+      // 현재 활성(비정적) 원 — 낙하한 단어 원 + 보라 버블 — 을 모아 기하학적 위치 완화로
+      // 겹침을 밀어낸 뒤, 그 변위를 `Body.translate` 로 적용한다(position·positionPrev 를 함께
+      // 이동해 속도 보존 → 낙하 거동 유지). 이후 아래 stage 클램프가 경계를 재보장한다.
+      const activeBodies: import('matter-js').Body[] = [];
+      const activeCircles: Circle[] = [];
+      for (const p of purpleSims) {
+        if (p.body.isStatic) continue;
+        activeBodies.push(p.body);
+        activeCircles.push({ x: p.body.position.x, y: p.body.position.y, r: p.r });
+      }
+      for (const sim of wordSims) {
+        if (!sim.released || sim.body.isStatic) continue;
+        activeBodies.push(sim.body);
+        activeCircles.push({ x: sim.body.position.x, y: sim.body.position.y, r: radius });
+      }
+      if (activeCircles.length > 1) {
+        const resolved = separateCircles(activeCircles, SEPARATE_ITERS, SEPARATE_PAD);
+        for (let i = 0; i < activeBodies.length; i++) {
+          const dx = resolved[i].x - activeBodies[i].position.x;
+          const dy = resolved[i].y - activeBodies[i].position.y;
+          if (dx !== 0 || dy !== 0) {
+            Matter.Body.translate(activeBodies[i], { x: dx, y: dy });
+          }
+        }
+      }
 
       // 화면 이탈 절대 금지(SOO-1088 최후 방어선): 매 틱 stepEngine 이후 모든 바디 중심을
       // 스테이지 [r, size−r] 안으로 강제 클램프한다.
