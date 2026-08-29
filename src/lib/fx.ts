@@ -804,6 +804,54 @@ export function randomFreeSpawn(
 }
 
 /**
+ * 보라 버블 "상단 낙하" 스폰 지점(SOO-1208).
+ *
+ * 부모 SOO-1207 보더 요청: Step1 을 "제자리 생성 후 성장"에서 "위에서 떨어져 쌓이는(낙하+적재)"
+ * 방식으로 전환한다(Step3 낙하·적재 관례). 그래서 버블은 화면 상단 **밖**(y<0)에서 목표 크기 그대로
+ * 태어나 중력으로 낙하한다. x 는 반지름·마진을 함께 고려한 [inset, width−inset] 안에서 랜덤(rndX),
+ * y 는 천장선(y=0) 위로 반지름만큼 띄운다(중심 y = −radius) → 스폰 순간 화면 밖에 있어 떨어져 들어온다.
+ * rndX 는 0~1 난수(테스트 주입). 결과 x 는 항상 경계 안, y 는 항상 < 0(화면 위).
+ */
+export function topDropSpawnPoint(
+  width: number,
+  radius: number,
+  rndX: number,
+  margin = 40,
+): { x: number; y: number } {
+  const w = Number.isFinite(width) ? Math.max(0, width) : 0;
+  const r = Math.max(0, Number.isFinite(radius) ? radius : 0);
+  const m = Math.max(0, Number.isFinite(margin) ? margin : 0);
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+  const inset = Math.max(r, m);
+  const lo = Math.min(inset, w / 2);
+  const hi = Math.max(lo, w - inset);
+  const x = lo + clamp01(rndX) * (hi - lo);
+  return { x, y: -r };
+}
+
+/**
+ * 상단 낙하 스폰용 비겹침 자리(SOO-1208).
+ *
+ * 상단 밖 후보(`topDropSpawnPoint`)들 중, 아직 상단 근처에서 낙하 중인 **기존 버블**과 겹치지 않는
+ * 첫 자리를 고른다 → 같은 x 로 연달아 태어나 스폰 순간 서로 관통하는 현상을 원천 차단한다(Step3
+ * RELEASE_STEP 이 세로 겹침을 막던 것을, 여기서는 상단선 가로 비겹침으로 대체). 후보가 모두 겹치면
+ * null → 이번 틱 스폰 보류(상단선이 아직 붐빔 — 다음 프레임 재시도). 바닥에 이미 쌓인 버블은 y 가 멀어
+ * 후보(y=−r)와 겹치지 않으므로 `bubbles` 에 전부 넘겨도 상단 근처 것만 실질적으로 배제된다.
+ * rnds 는 후보 x 를 정할 0~1 난수 목록(테스트 주입) — 길이가 후보 시도 횟수.
+ */
+export function topDropFreeSpawn(
+  width: number,
+  radius: number,
+  bubbles: readonly Circle[],
+  rnds: readonly number[],
+  pad = 0,
+  margin = 40,
+): { x: number; y: number } | null {
+  const candidates = rnds.map((r) => topDropSpawnPoint(width, radius, r, margin));
+  return firstFreeSpawn(candidates, radius, bubbles, pad);
+}
+
+/**
  * 신규 버블 자리를 비우도록 겹치는 단어를 "위로" 밀어올린 목표 y 를 사전 계산(SOO-1112 재수정).
  *
  * 보더 피드백("밀어올리는 것까지 사전에 계산해서 진행하라"): 버블이 겹친 채 태어나 물리 솔버가
@@ -853,9 +901,13 @@ export function upwardPushTargets(
  * 겹치지 않고는 면적의 ~90%(완벽 육각 패킹의 이론값)를 넘길 수 없다. 90% 를 목표로 두면
  * 버블 겹침이 기하학적으로 불가피해 60% 까지 낮췄다가 보더 요청으로 80% 로 올렸다가
  * 다시 "70% 로 줄여 달라"(SOO-1112), 이후 "0.65 로 조절"(SOO-1175 최신) 요청. 0.65 는
- * 이론 상한(~90%) 아래이면서 70% 보다 조금 더 성기게 채운다. 스폰은 여전히
- * `firstFreeSpawn` 기준 비중첩 자리에서만 이뤄지므로 스폰 순간 겹침은 없고, 채움만
- * 조절된다(자유 공간이 없으면 그 틱은 보류).
+ * 이론 상한(~90%) 아래이면서 70% 보다 조금 더 성기게 채운다.
+ *
+ * SOO-1208 낙하·적재 전환: Step1 버블이 "제자리 스폰+성장"에서 "상단 낙하+적재"로 바뀌면서도
+ * 이 상수의 의미(= 채움 상한 → 스폰 중단)는 그대로 재사용한다. 이제는 목표 크기 그대로 태어나
+ * 떨어지므로 footprint 면적이 곧 실측 면적이고, 이 비율에 도달하면 상단 낙하 스폰을 멈춘다(이미
+ * 쌓인 버블은 영속). 값(0.65)은 SOO-1175 PR #80 그대로 유지 — 낙하 방식 전환이 상수 값 자체를
+ * 바꾸지는 않는다.
  */
 export const FILL_STOP_RATIO = 0.65;
 
@@ -908,7 +960,8 @@ export function bodiesSettled(speeds: readonly number[], threshold: number): boo
 /**
  * 채움 완료 후 물리 고정까지의 유예(ms) — 보더 요청(SOO-1114 도입, SOO-1175 로 2초→1초 단축):
  * 채움 상한(FILL_STOP_RATIO 또는 MAX_PURPLE) 도달 시점부터 이 시간 뒤 모든 바디를 정적 고정해
- * 잔여 접촉 해소로 인한 미세 떨림(지터)을 제거한다.
+ * 잔여 접촉 해소로 인한 미세 떨림(지터)을 제거한다. SOO-1208(낙하·적재) 이후에는 "스폰 중단 +
+ * 낙하 버블이 모두 정착"한 시점을 채움 완료로 보고, 그로부터 이 유예 뒤 고정한다.
  */
 export const FREEZE_DELAY_MS = 1000;
 
