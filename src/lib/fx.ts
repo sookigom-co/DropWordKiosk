@@ -705,6 +705,62 @@ export function circlesOverlap(
 }
 
 /**
+ * 원 목록의 겹침을 기하학적으로 해소한 새 좌표를 반환(SOO-1208 후속, 보더 "절대 겹치지 않게").
+ *
+ * matter-js 동적 강체 충돌(restitution 0, positionIterations 10)은 잔여 관통(matter `slop`,
+ * 적재 압력)을 완전히 0 으로 만들지 못해 화면상 미세 겹침이 남는다. 이 함수는 매 프레임 물리
+ * 스텝 뒤에 호출돼, 서로 (반지름 합 + pad)보다 가까운 원 쌍을 중심 연결선 방향으로 각각 침투량의
+ * 절반씩 밀어내는 위치 완화(relaxation)를 iterations 회 반복한다 → **렌더되는 좌표**가 어떤
+ * 시점에도 겹치지 않도록 결정적으로 보장한다. 입력 좌표는 건드리지 않고 새 좌표 배열을 반환하므로
+ * 순수 함수로 단위 테스트할 수 있다. 중심이 완전히 겹친(거리≈0) 쌍은 +x 축으로 결정적으로 벌린다.
+ * 호출부는 (새 좌표 − 기존 좌표) 변위를 `Body.translate` 로 적용해 물리 속도를 보존한 채 겹침만
+ * 정정한다(낙하 속도 유지). pad 는 원 사이에 두고 싶은 최소 여유(px).
+ */
+export function separateCircles(
+  circles: readonly Circle[],
+  iterations = 4,
+  pad = 0,
+): { x: number; y: number }[] {
+  const n = circles.length;
+  const xs = new Array<number>(n);
+  const ys = new Array<number>(n);
+  const rs = new Array<number>(n);
+  for (let i = 0; i < n; i++) {
+    xs[i] = Number.isFinite(circles[i].x) ? circles[i].x : 0;
+    ys[i] = Number.isFinite(circles[i].y) ? circles[i].y : 0;
+    rs[i] = Math.max(0, Number.isFinite(circles[i].r) ? circles[i].r : 0);
+  }
+  const p = Math.max(0, Number.isFinite(pad) ? pad : 0);
+  const iters = Math.max(0, Math.floor(iterations));
+  for (let it = 0; it < iters; it++) {
+    let moved = false;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = xs[j] - xs[i];
+        const dy = ys[j] - ys[i];
+        const minD = rs[i] + rs[j] + p;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= minD * minD) continue;
+        const d = Math.sqrt(d2);
+        // 완전히 겹친(거리≈0) 쌍: 결정적으로 +x 축으로 벌린다(난수 없이 재현 가능).
+        const nx = d > 1e-9 ? dx / d : 1;
+        const ny = d > 1e-9 ? dy / d : 0;
+        const push = (minD - d) / 2;
+        xs[i] -= nx * push;
+        ys[i] -= ny * push;
+        xs[j] += nx * push;
+        ys[j] += ny * push;
+        moved = true;
+      }
+    }
+    if (!moved) break; // 이미 비겹침 → 조기 종료.
+  }
+  const out = new Array<{ x: number; y: number }>(n);
+  for (let i = 0; i < n; i++) out[i] = { x: xs[i], y: ys[i] };
+  return out;
+}
+
+/**
  * 성장 중 다른 공과 겹치지 않도록 허용되는 최대 반지름(px).
  * 각 이웃 공에 대해 (중심거리 - 이웃반지름 - pad) 이하로 제한한다.
  * 이웃이 없으면 desired 를 그대로 반환. 음수는 0 으로 안전화.
